@@ -8,7 +8,6 @@ from app.bot_instance import bot
 from app.keyboards.main_menu import get_main_menu
 from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
 from app.services.docx_service import render_spetsifikatsiya
-from app.services.pdf_service import convert_to_pdf
 from app.states.spetsifikatsiya import SpetsifikatsiyaForm
 
 logger = logging.getLogger(__name__)
@@ -18,51 +17,21 @@ router = Router()
 @router.message(F.text == "📊 Spetsifikatsiya yaratish")
 async def start_spec(message: Message, state: FSMContext):
     await state.clear()
-    await state.update_data(answers={}, items=[], idx=0, step=0)
+    await state.update_data(items=[], idx=0, count=0)
     await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
     await message.answer("📊 <b>Spetsifikatsiya yaratish</b>")
     await message.answer(
-        "1/5 — 🔢 Spetsifikatsiya raqamini kiriting.",
+        "1/2 — 🔢 Spetsifikatsiya raqamini kiriting.",
         reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
     )
-    await state.set_state(SpetsifikatsiyaForm.raqam)
+    await state.set_state(SpetsifikatsiyaForm.spek_raqami)
 
 
-@router.message(SpetsifikatsiyaForm.raqam)
+@router.message(SpetsifikatsiyaForm.spek_raqami)
 async def sp_raqam(m: Message, state: FSMContext):
-    await state.update_data(raqam=m.text or "")
+    await state.update_data(spek_raqami=m.text or "")
     await m.answer(
-        "2/5 — 📅 Sanani kiriting.\nMasalan: 24.09.2026",
-        reply_markup=get_nav_keyboard(show_back=True, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.sana)
-
-
-@router.message(SpetsifikatsiyaForm.sana)
-async def sp_sana(m: Message, state: FSMContext):
-    await state.update_data(sana=m.text or "")
-    await m.answer(
-        "3/5 — 🏢 Firma nomini kiriting.",
-        reply_markup=get_nav_keyboard(show_back=True, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.firma)
-
-
-@router.message(SpetsifikatsiyaForm.firma)
-async def sp_firma(m: Message, state: FSMContext):
-    await state.update_data(firma=m.text or "")
-    await m.answer(
-        "4/5 — 🔢 STIR raqamini kiriting.",
-        reply_markup=get_nav_keyboard(show_back=True, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.stir)
-
-
-@router.message(SpetsifikatsiyaForm.stir)
-async def sp_stir(m: Message, state: FSMContext):
-    await state.update_data(stir=m.text or "")
-    await m.answer(
-        "5/5 — 💊 Nechta dori kiritasiz? (raqam)\nMasalan: 3",
+        "2/2 — 💊 Nechta dori kiritasiz? (raqam)\nMasalan: 3",
         reply_markup=get_nav_keyboard(show_back=True, prefix="sp"),
     )
     await state.set_state(SpetsifikatsiyaForm.count)
@@ -83,53 +52,53 @@ async def sp_count(m: Message, state: FSMContext):
         f"💊 1/{count} — Dori nomini kiriting.",
         reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
     )
-    await state.set_state(SpetsifikatsiyaForm.item_name)
+    await state.set_state(SpetsifikatsiyaForm.item_dori)
 
 
-@router.message(SpetsifikatsiyaForm.item_name)
-async def sp_item_name(m: Message, state: FSMContext):
-    await state.update_data(current_name=m.text or "")
+@router.message(SpetsifikatsiyaForm.item_dori)
+async def sp_item_dori(m: Message, state: FSMContext):
+    await state.update_data(current_dori=m.text or "")
     await m.answer(
-        "🔢 Soni (miqdori):",
+        "🔢 Miqdorini kiriting (soni):",
         reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
     )
-    await state.set_state(SpetsifikatsiyaForm.item_qty)
+    await state.set_state(SpetsifikatsiyaForm.item_miqdor)
 
 
-@router.message(SpetsifikatsiyaForm.item_qty)
-async def sp_item_qty(m: Message, state: FSMContext):
+@router.message(SpetsifikatsiyaForm.item_miqdor)
+async def sp_item_miqdor(m: Message, state: FSMContext):
     try:
         qty = float((m.text or "").replace(",", ".").strip())
     except ValueError:
         await m.answer("❌ Raqam kiriting.")
         return
-    await state.update_data(current_qty=qty)
+    await state.update_data(current_miqdor=qty)
     await m.answer(
-        "💰 Narxi (1 dona uchun):",
+        "💰 Narxini kiriting (1 dona uchun):",
         reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
     )
-    await state.set_state(SpetsifikatsiyaForm.item_price)
+    await state.set_state(SpetsifikatsiyaForm.item_narx)
 
 
-@router.message(SpetsifikatsiyaForm.item_price)
-async def sp_item_price(m: Message, state: FSMContext):
+@router.message(SpetsifikatsiyaForm.item_narx)
+async def sp_item_narx(m: Message, state: FSMContext):
     try:
-        price = float((m.text or "").replace(",", ".").strip())
+        price = float((m.text or "").replace(",", ".").replace(" ", "").strip())
     except ValueError:
         await m.answer("❌ Raqam kiriting.")
         return
 
     data = await state.get_data()
-    name = data.get("current_name", "")
-    qty = data.get("current_qty", 0)
+    name = data.get("current_dori", "")
+    qty = data.get("current_miqdor", 0)
     total = qty * price
 
     items = data.get("items", [])
     items.append({
-        "name": name,
-        "qty": qty,
-        "price": price,
-        "total": total,
+        "dori_nomi": name,
+        "miqdori": qty,
+        "narxi": price,
+        "umumiy_narxi": total,
     })
     idx = data.get("idx", 0) + 1
     count = data.get("count", 0)
@@ -143,21 +112,18 @@ async def sp_item_price(m: Message, state: FSMContext):
         f"💊 {idx + 1}/{count} — Dori nomini kiriting.",
         reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
     )
-    await state.set_state(SpetsifikatsiyaForm.item_name)
+    await state.set_state(SpetsifikatsiyaForm.item_dori)
 
 
 async def _show_confirm(message: Message, state: FSMContext):
     data = await state.get_data()
     items = data.get("items", [])
     lines = ["📋 <b>Tekshiring:</b>\n"]
-    lines.append(f"🔢 Raqam: {data.get('raqam', '—')}")
-    lines.append(f"📅 Sana: {data.get('sana', '—')}")
-    lines.append(f"🏢 Firma: {data.get('firma', '—')}")
-    lines.append(f"🔢 STIR: {data.get('stir', '—')}\n")
+    lines.append(f"🔢 Raqam: {data.get('spek_raqami', '—')}\n")
     lines.append("<b>Dorilar:</b>")
     for i, item in enumerate(items, 1):
         lines.append(
-            f"{i}. {item['name']} — {item['qty']} x {item['price']} = {item['total']}"
+            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {item['narxi']} = {item['umumiy_narxi']}"
         )
     await state.set_state(SpetsifikatsiyaForm.confirm)
     await message.answer("\n".join(lines), reply_markup=get_confirm_keyboard("sp"))
@@ -181,19 +147,18 @@ async def sp_restart(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "sp:back")
 async def sp_back(call: CallbackQuery, state: FSMContext):
-    await call.answer("Orqaga qaytish bu qadamda mavjud emas.", show_alert=True)
+    await call.answer("Bu qadamda orqaga qaytish yo‘q.", show_alert=True)
 
 
 @router.callback_query(F.data == "sp:submit")
 async def sp_submit(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    items = data.get("items", [])
+
     payload = {
-        "raqam": data.get("raqam", ""),
-        "sana": data.get("sana", ""),
-        "firma": data.get("firma", ""),
-        "stir": data.get("stir", ""),
-        "items": data.get("items", []),
-        "total_sum": sum(i["total"] for i in data.get("items", [])),
+        "spek_raqami": data.get("spek_raqami", ""),
+        "items": items,
+        "jami_summa": sum(i["umumiy_narxi"] for i in items),
     }
 
     await call.message.edit_text("⏳ Hujjat tayyorlanmoqda...")
@@ -207,10 +172,7 @@ async def sp_submit(call: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    pdf_path = convert_to_pdf(docx_path)
-    file_to_send = pdf_path if pdf_path else docx_path
-    file = FSInputFile(str(file_to_send))
-
+    file = FSInputFile(str(docx_path))
     await bot.send_document(call.from_user.id, file)
 
     await state.clear()
