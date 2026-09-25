@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from app.bot_instance import bot
 from app.database.base import async_session
 from app.database.repo import get_all_drugs, get_drug, save_spek
-from app.keyboards.main_menu import get_main_menu
+from app.keyboards.main_menu import get_main_menu, get_menu_button
 from app.keyboards.spetsifikatsiya import (
     get_confirm_keyboard,
     get_drugs_keyboard,
@@ -55,7 +55,10 @@ async def _show_edit(message: Message, state: FSMContext):
 async def start_spec_uz(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(selected={}, items=[], lang="uz")
-    await message.answer("📊 <b>Spetsifikatsiya yaratish</b>")
+    await message.answer(
+        "📊 <b>Spetsifikatsiya yaratish</b>",
+        reply_markup=get_menu_button("uz"),
+    )
     await _show_drugs(message, state)
 
 
@@ -63,8 +66,23 @@ async def start_spec_uz(message: Message, state: FSMContext):
 async def start_spec_ru(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(selected={}, items=[], lang="ru")
-    await message.answer("📊 <b>Создание спецификации</b>")
+    await message.answer(
+        "📊 <b>Создание спецификации</b>",
+        reply_markup=get_menu_button("ru"),
+    )
     await _show_drugs(message, state)
+
+
+@router.message(F.text == "🏠 Menu")
+async def back_to_menu_uz(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Asosiy menyu:", reply_markup=get_main_menu("uz"))
+
+
+@router.message(F.text == "🏠 Меню")
+async def back_to_menu_ru(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Главное меню:", reply_markup=get_main_menu("ru"))
 
 
 @router.callback_query(F.data.startswith("spec:pick:"))
