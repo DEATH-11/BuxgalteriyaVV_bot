@@ -11,6 +11,7 @@ from app.keyboards.main_menu import get_main_menu
 from app.keyboards.spetsifikatsiya import (
     get_confirm_keyboard,
     get_drugs_keyboard,
+    get_edit_keyboard,
     get_qty_keyboard,
 )
 from app.services.docx_service import render_spetsifikatsiya
@@ -33,6 +34,19 @@ async def _show_drugs(message: Message, state: FSMContext):
     await message.answer(
         "💊 <b>Dori tanlang:</b>",
         reply_markup=get_drugs_keyboard(drugs, selected),
+    )
+
+
+async def _show_edit(message: Message, state: FSMContext):
+    data = await state.get_data()
+    selected = data.get("selected", {})
+    if not selected:
+        await message.answer("❌ Hech narsa tanlanmagan.")
+        return
+    await state.set_state(SpetsifikatsiyaForm.pick_drug)
+    await message.answer(
+        "✏️ <b>Tanlangan dorilar:</b>",
+        reply_markup=get_edit_keyboard(selected),
     )
 
 
@@ -76,7 +90,7 @@ async def pick_drug(call: CallbackQuery, state: FSMContext):
         f"💊 <b>{drug.name}</b>\n"
         f"💰 Narxi: {int(drug.price):,}".replace(",", " ") + "\n\n"
         "Nechta olasiz?",
-        reply_markup=get_qty_keyboard(drug_id),
+        reply_markup=get_qty_keyboard(),
     )
     await call.answer()
 
@@ -112,6 +126,53 @@ async def enter_qty(m: Message, state: FSMContext):
     await _show_drugs(m, state)
 
 
+@router.callback_query(F.data == "spec:edit")
+async def edit_selected(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await _show_edit(call.message, state)
+    await call.answer()
+
+
+@router.callback_query(F.data == "spec:add_more")
+async def add_more(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await _show_drugs(call.message, state)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("spec:del:"))
+async def del_drug(call: CallbackQuery, state: FSMContext):
+    drug_id = int(call.data.split(":")[2])
+    data = await state.get_data()
+    selected = data.get("selected", {})
+    if drug_id in selected:
+        del selected[drug_id]
+    await state.update_data(selected=selected)
+    await call.message.edit_reply_markup(reply_markup=None)
+    await _show_edit(call.message, state)
+    await call.answer("🗑 O‘chirildi")
+
+
+@router.callback_query(F.data.startswith("spec:edit_qty:"))
+async def edit_qty_start(call: CallbackQuery, state: FSMContext):
+    drug_id = int(call.data.split(":")[2])
+    data = await state.get_data()
+    selected = data.get("selected", {})
+    item = selected.get(drug_id)
+    if not item:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    await state.update_data(current_drug_id=drug_id)
+    await state.set_state(SpetsifikatsiyaForm.enter_qty)
+    await call.message.edit_text(
+        f"✏️ <b>{item['name']}</b>\n"
+        f"Hozirgi miqdor: {item['qty']}\n\n"
+        "Yangi miqdorni kiriting:",
+        reply_markup=get_qty_keyboard(),
+    )
+    await call.answer()
+
+
 @router.callback_query(F.data == "spec:done")
 async def spec_done(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -135,10 +196,13 @@ async def spec_done(call: CallbackQuery, state: FSMContext):
 
     lines = ["📋 <b>Tekshiring:</b>\n"]
     for i, item in enumerate(items, 1):
+        total_str = f"{int(item['umumiy_narxi']):,}".replace(",", " ")
         lines.append(
-            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {item['narxi']} = {item['umumiy_narxi']}"
+            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {int(item['narxi']):,}".replace(",", " ")
+            + f" = {total_str}"
         )
-    lines.append(f"\n💰 <b>Jami:</b> {total:,.0f}".replace(",", " "))
+    total_str = f"{int(total):,}".replace(",", " ")
+    lines.append(f"\n💰 <b>Jami:</b> {total_str}")
 
     await state.set_state(SpetsifikatsiyaForm.confirm)
     await call.message.edit_text("\n".join(lines), reply_markup=get_confirm_keyboard())
