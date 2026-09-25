@@ -2,12 +2,12 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
 from app.database.base import async_session
 from app.database.repo import save_contract
-from app.keyboards.main_menu import get_main_menu
+from app.keyboards.main_menu import get_main_menu, get_menu_button
 from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
 from app.services.docx_service import render_shartnoma
 from app.services.pdf_service import convert_to_pdf
@@ -100,8 +100,10 @@ async def _show_confirm(message: Message, state: FSMContext, lang: str):
 async def start_shartnoma_uz(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(answers={}, step=0, lang="uz")
-    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
-    await message.answer(TEXTS["uz"]["title"])
+    await message.answer(
+        TEXTS["uz"]["title"],
+        reply_markup=get_menu_button("uz"),
+    )
     await _ask(message, state, 0, "uz")
 
 
@@ -109,9 +111,23 @@ async def start_shartnoma_uz(message: Message, state: FSMContext):
 async def start_shartnoma_ru(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(answers={}, step=0, lang="ru")
-    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
-    await message.answer(TEXTS["ru"]["title"])
+    await message.answer(
+        TEXTS["ru"]["title"],
+        reply_markup=get_menu_button("ru"),
+    )
     await _ask(message, state, 0, "ru")
+
+
+@router.message(F.text == "🏠 Menu")
+async def back_to_menu_uz(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Asosiy menyu:", reply_markup=get_main_menu("uz"))
+
+
+@router.message(F.text == "🏠 Меню")
+async def back_to_menu_ru(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Главное меню:", reply_markup=get_main_menu("ru"))
 
 
 @router.message(ShartnomaForm.shartnoma_raqami)
@@ -140,7 +156,10 @@ async def sh_back(call: CallbackQuery, state: FSMContext):
     lang = data.get("lang", "uz")
     step = data.get("step", 0)
     if step == 0:
-        await call.answer("Bu birinchi qadam." if lang == "uz" else "Это первый шаг.", show_alert=True)
+        await call.answer(
+            "Bu birinchi qadam." if lang == "uz" else "Это первый шаг.",
+            show_alert=True,
+        )
         return
     await call.message.edit_reply_markup(reply_markup=None)
     await _ask(call.message, state, step - 1, lang)
@@ -198,7 +217,6 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
         pdf_bytes = pdf_path.read_bytes()
         pdf_name = pdf_path.name
 
-    # Bazaga saqlash
     try:
         async with async_session() as session:
             await save_contract(
