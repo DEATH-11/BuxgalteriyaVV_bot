@@ -8,3 +8,7 @@ class AdminDrugForm(StatesGroup):
     edit_name = State()
     edit_unit = State()
     edit_price = State()
+
+
+class AdminContractForm(StatesGroup):
+    search_inn = State()
