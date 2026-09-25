@@ -3,7 +3,7 @@ import json
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Drug, Spek, SpekCounter
+from app.database.models import Contract, Drug, Spek, SpekCounter
 
 
 async def get_all_drugs(session: AsyncSession) -> list[Drug]:
@@ -86,4 +86,45 @@ async def get_all_speks(session: AsyncSession, limit: int = 100) -> list[Spek]:
 
 async def get_spek_by_number(session: AsyncSession, number: int) -> Spek | None:
     result = await session.execute(select(Spek).where(Spek.number == number))
+    return result.scalar_one_or_none()
+
+
+async def save_contract(
+    session: AsyncSession,
+    inn: str,
+    firma: str,
+    number: str,
+    date: str,
+    user_id: int,
+    user_name: str,
+    pdf_data: bytes | None,
+    pdf_name: str,
+) -> Contract:
+    contract = Contract(
+        inn=inn,
+        firma=firma,
+        number=number,
+        date=date,
+        user_id=user_id,
+        user_name=user_name,
+        pdf_data=pdf_data,
+        pdf_name=pdf_name,
+    )
+    session.add(contract)
+    await session.commit()
+    await session.refresh(contract)
+    return contract
+
+
+async def get_contracts_by_inn(session: AsyncSession, inn: str) -> list[Contract]:
+    result = await session.execute(
+        select(Contract)
+        .where(Contract.inn == inn)
+        .order_by(Contract.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_contract(session: AsyncSession, contract_id: int) -> Contract | None:
+    result = await session.execute(select(Contract).where(Contract.id == contract_id))
     return result.scalar_one_or_none()
