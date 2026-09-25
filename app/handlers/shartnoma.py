@@ -5,6 +5,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
 
 from app.bot_instance import bot
+from app.database.base import async_session
+from app.database.repo import save_contract
 from app.keyboards.main_menu import get_main_menu
 from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
 from app.services.docx_service import render_shartnoma
@@ -20,13 +22,13 @@ STEPS = {
         ("shartnoma_raqami", "1/4 — 🔢 Shartnoma raqamini kiriting.\nMasalan: 197/25"),
         ("sana", "2/4 — 📅 Sanani kiriting.\nMasalan: 24.09.2026"),
         ("firma_nomi", "3/4 — 🏢 Firma nomini kiriting."),
-        ("stir_raqami", "4/4 — 🔢 STIR raqamini kiriting."),
+        ("stir_raqami", "4/4 — 🔢 STIR (INN) raqamini kiriting."),
     ],
     "ru": [
         ("shartnoma_raqami", "1/4 — 🔢 Введите номер договора.\nНапример: 197/25"),
         ("sana", "2/4 — 📅 Введите дату.\nНапример: 24.09.2026"),
         ("firma_nomi", "3/4 — 🏢 Введите название фирмы."),
-        ("stir_raqami", "4/4 — 🔢 Введите ИНН (СТИР)."),
+        ("stir_raqami", "4/4 — 🔢 Введите ИНН."),
     ],
 }
 
@@ -41,20 +43,12 @@ TEXTS = {
     "uz": {
         "title": "📄 <b>Shartnoma yaratish</b>",
         "confirm": "📋 <b>Tekshiring:</b>",
-        "number": "🔢 Raqam",
-        "date": "📅 Sana",
-        "firm": "🏢 Firma",
-        "stir": "🔢 STIR",
         "creating": "⏳ Hujjat tayyorlanmoqda...",
         "menu": "Asosiy menyu:",
     },
     "ru": {
         "title": "📄 <b>Создание договора</b>",
         "confirm": "📋 <b>Проверьте:</b>",
-        "number": "🔢 Номер",
-        "date": "📅 Дата",
-        "firm": "🏢 Фирма",
-        "stir": "🔢 ИНН",
         "creating": "⏳ Документ готовится...",
         "menu": "Главное меню:",
     },
@@ -93,10 +87,10 @@ async def _show_confirm(message: Message, state: FSMContext, lang: str):
     t = TEXTS.get(lang, TEXTS["uz"])
     text = (
         f"{t['confirm']}\n\n"
-        f"{t['number']}: {a.get('shartnoma_raqami', '—')}\n"
-        f"{t['date']}: {a.get('sana', '—')}\n"
-        f"{t['firm']}: {a.get('firma_nomi', '—')}\n"
-        f"{t['stir']}: {a.get('stir_raqami', '—')}"
+        f"🔢 Raqam: {a.get('shartnoma_raqami', '—')}\n"
+        f"📅 Sana: {a.get('sana', '—')}\n"
+        f"🏢 Firma: {a.get('firma_nomi', '—')}\n"
+        f"🔢 INN: {a.get('stir_raqami', '—')}"
     )
     await state.set_state(ShartnomaForm.confirm)
     await message.answer(text, reply_markup=get_confirm_keyboard("sh"))
@@ -197,8 +191,31 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
 
     pdf_path = convert_to_pdf(docx_path)
     file_to_send = pdf_path if pdf_path else docx_path
-    file = FSInputFile(str(file_to_send))
 
+    pdf_bytes = None
+    pdf_name = ""
+    if pdf_path and pdf_path.exists():
+        pdf_bytes = pdf_path.read_bytes()
+        pdf_name = pdf_path.name
+
+    # Bazaga saqlash
+    try:
+        async with async_session() as session:
+            await save_contract(
+                session,
+                inn=a.get("stir_raqami", ""),
+                firma=a.get("firma_nomi", ""),
+                number=a.get("shartnoma_raqami", ""),
+                date=a.get("sana", ""),
+                user_id=call.from_user.id,
+                user_name=call.from_user.full_name,
+                pdf_data=pdf_bytes,
+                pdf_name=pdf_name,
+            )
+    except Exception as e:
+        logger.error(f"DB error: {e}")
+
+    file = FSInputFile(str(file_to_send))
     await bot.send_document(call.from_user.id, file)
 
     await state.clear()
