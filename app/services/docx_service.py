@@ -2,8 +2,9 @@ from datetime import datetime
 from pathlib import Path
 
 from docx import Document
-from docx.shared import Pt, Cm
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from docxtpl import DocxTemplate
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -15,10 +16,17 @@ def _safe(name: str) -> str:
     return "".join(c for c in str(name) if c.isalnum() or c in "-_") or "x"
 
 
-def _fmt(num) -> str:
-    """Raqamni chiroyli formatda chiqaradi: 5124000 -> 5 124 000"""
+def _fmt_int(num) -> str:
+    """10.0 -> '10', 10.5 -> '10.5', 5124000 -> '5 124 000'"""
     try:
-        return f"{int(round(float(num))):,}".replace(",", " ")
+        f = float(num)
+        if f.is_integer():
+            n = int(f)
+        else:
+            n = f
+        if isinstance(n, int):
+            return f"{n:,}".replace(",", " ")
+        return str(n)
     except Exception:
         return str(num)
 
@@ -41,11 +49,10 @@ def render_spetsifikatsiya(data: dict) -> Path:
     items = data.get("items", [])
     jami = data.get("jami_summa", 0)
 
-    # Shablonga oddiy matn sifatida yozamiz, keyin jadvalni qo‘shamiz
     context = {
         "spek_raqami": data.get("spek_raqami", ""),
-        "table": "",  # bo‘sh — jadvalni keyin qo‘shamiz
-        "jami_summa": _fmt(jami),
+        "table": "",
+        "jami_summa": _fmt_int(jami),
     }
     doc.render(context)
 
@@ -54,33 +61,30 @@ def render_spetsifikatsiya(data: dict) -> Path:
     output_path = OUTPUT_DIR / filename
     doc.save(str(output_path))
 
-    # Endi jadvalni qo‘shamiz
-    _insert_table(str(output_path), items, jami)
+    _insert_table_in_place(str(output_path), items, jami)
 
     return output_path
 
 
-def _insert_table(docx_path: str, items: list, jami) -> None:
-    """DOCX faylga jadval qo‘shadi."""
+def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
     doc = Document(docx_path)
 
-    # "{{ table }}" qatorini topamiz
+    # "{{ table }}" paragrafini topamiz
     target_paragraph = None
     for para in doc.paragraphs:
-        if "{{ table }}" in para.text or "table" in para.text.lower():
+        if "table" in para.text.lower() or "{{" in para.text and "table" in para.text:
             target_paragraph = para
             break
 
     if target_paragraph is None:
-        # Topilmasa — hujjat oxiriga qo‘shamiz
+        # Topilmasa, oxiriga qo‘shamiz
         target_paragraph = doc.add_paragraph()
 
-    # Jadval yaratamiz: 1 sarlavha + N ma'lumot + 1 ИТОГО
+    # Jadval yaratamiz
     rows_count = 1 + len(items) + 1
     table = doc.add_table(rows=rows_count, cols=5)
     table.style = "Table Grid"
 
-    # Sarlavha
     headers = [
         "Наименование товаров",
         "Ед. изм.",
@@ -96,29 +100,30 @@ def _insert_table(docx_path: str, items: list, jami) -> None:
                 run.bold = True
                 run.font.size = Pt(10)
 
-    # Ma’lumot qatorlari
     for idx, item in enumerate(items, start=1):
         row = table.rows[idx]
         row.cells[0].text = str(item.get("dori_nomi", ""))
         row.cells[1].text = "упак"
-        row.cells[2].text = str(item.get("miqdori", ""))
-        row.cells[3].text = _fmt(item.get("narxi", 0))
-        row.cells[4].text = _fmt(item.get("umumiy_narxi", 0))
+        row.cells[2].text = _fmt_int(item.get("miqdori", 0))
+        row.cells[3].text = _fmt_int(item.get("narxi", 0))
+        row.cells[4].text = _fmt_int(item.get("umumiy_narxi", 0))
 
         for cell in row.cells:
             for para in cell.paragraphs:
                 for run in para.runs:
                     run.font.size = Pt(10)
 
-    # ИТОГО
     total_row = table.rows[-1]
     total_row.cells[0].text = "ИТОГО"
-    total_row.cells[4].text = _fmt(jami)
+    total_row.cells[4].text = _fmt_int(jami)
     for cell in total_row.cells:
         for para in cell.paragraphs:
             for run in para.runs:
                 run.bold = True
                 run.font.size = Pt(10)
+
+    # Jadvalni "{{ table }}" paragrafining OLDIGA joylashtiramiz
+    target_paragraph._p.addprevious(table._tbl)
 
     # "{{ table }}" matnini o‘chirib tashlaymiz
     target_paragraph.text = ""
