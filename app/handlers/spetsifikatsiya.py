@@ -5,8 +5,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
 
 from app.bot_instance import bot
+from app.database.base import async_session
+from app.database.repo import get_all_drugs, get_drug, save_spek
 from app.keyboards.main_menu import get_main_menu
-from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
+from app.keyboards.spetsifikatsiya import (
+    get_confirm_keyboard,
+    get_drugs_keyboard,
+    get_qty_keyboard,
+)
 from app.services.docx_service import render_spetsifikatsiya
 from app.services.pdf_service import convert_to_pdf
 from app.states.spetsifikatsiya import SpetsifikatsiyaForm
@@ -15,224 +21,172 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-TEXTS = {
-    "uz": {
-        "title": "📊 <b>Spetsifikatsiya yaratish</b>",
-        "ask_number": "1/2 — 🔢 Spetsifikatsiya raqamini kiriting.",
-        "ask_count": "2/2 — 💊 Nechta dori kiritasiz? (raqam)\nMasalan: 3",
-        "ask_dori": "💊 {n}/{total} — Dori nomini kiriting.",
-        "ask_miqdor": "🔢 Miqdorini kiriting (soni):",
-        "ask_narx": "💰 Narxini kiriting (1 dona uchun):",
-        "error_num": "❌ Iltimos, butun musbat raqam kiriting.",
-        "error_digit": "❌ Raqam kiriting.",
-        "confirm": "📋 <b>Tekshiring:</b>",
-        "drugs": "<b>Dorilar:</b>",
-        "creating": "⏳ Hujjat tayyorlanmoqda...",
-        "menu": "Asosiy menyu:",
-        "cancel": "❌ Bekor qilindi.",
-        "back": "Bu qadamda orqaga qaytish yo‘q.",
-    },
-    "ru": {
-        "title": "📊 <b>Создание спецификации</b>",
-        "ask_number": "1/2 — 🔢 Введите номер спецификации.",
-        "ask_count": "2/2 — 💊 Сколько товаров будете вводить? (число)\nНапример: 3",
-        "ask_dori": "💊 {n}/{total} — Введите название товара.",
-        "ask_miqdor": "🔢 Введите количество:",
-        "ask_narx": "💰 Введите цену (за 1 единицу):",
-        "error_num": "❌ Введите целое положительное число.",
-        "error_digit": "❌ Введите число.",
-        "confirm": "📋 <b>Проверьте:</b>",
-        "drugs": "<b>Товары:</b>",
-        "creating": "⏳ Документ готовится...",
-        "menu": "Главное меню:",
-        "cancel": "❌ Отменено.",
-        "back": "На этом шаге возврат невозможен.",
-    },
-}
+async def _show_drugs(message: Message, state: FSMContext):
+    data = await state.get_data()
+    selected = data.get("selected", {})
+    async with async_session() as session:
+        drugs = await get_all_drugs(session)
+    if not drugs:
+        await message.answer("❌ Dorilar ro‘yxati bo‘sh. Admin bilan bog‘laning.")
+        return
+    await state.set_state(SpetsifikatsiyaForm.pick_drug)
+    await message.answer(
+        "💊 <b>Dori tanlang:</b>",
+        reply_markup=get_drugs_keyboard(drugs, selected),
+    )
 
 
 @router.message(F.text == "📊 Spetsifikatsiya yaratish")
 async def start_spec_uz(message: Message, state: FSMContext):
-    await _start(message, state, "uz")
+    await state.clear()
+    await state.update_data(selected={}, items=[], lang="uz")
+    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
+    await message.answer("📊 <b>Spetsifikatsiya yaratish</b>")
+    await _show_drugs(message, state)
 
 
 @router.message(F.text == "📊 Создать спецификацию")
 async def start_spec_ru(message: Message, state: FSMContext):
-    await _start(message, state, "ru")
-
-
-async def _start(message: Message, state: FSMContext, lang: str):
-    t = TEXTS[lang]
     await state.clear()
-    await state.update_data(items=[], idx=0, count=0, lang=lang)
+    await state.update_data(selected={}, items=[], lang="ru")
     await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
-    await message.answer(t["title"])
-    await message.answer(
-        t["ask_number"],
-        reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.spek_raqami)
+    await message.answer("📊 <b>Создание спецификации</b>")
+    await _show_drugs(message, state)
 
 
-@router.message(SpetsifikatsiyaForm.spek_raqami)
-async def sp_raqam(m: Message, state: FSMContext):
+@router.callback_query(F.data.startswith("spec:pick:"))
+async def pick_drug(call: CallbackQuery, state: FSMContext):
+    drug_id = int(call.data.split(":")[2])
     data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
-    await state.update_data(spek_raqami=m.text or "")
-    await m.answer(
-        t["ask_count"],
-        reply_markup=get_nav_keyboard(show_back=True, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.count)
+    selected = data.get("selected", {})
 
-
-@router.message(SpetsifikatsiyaForm.count)
-async def sp_count(m: Message, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
-    try:
-        count = int((m.text or "").strip())
-        if count <= 0:
-            raise ValueError
-    except ValueError:
-        await m.answer(t["error_num"])
+    if drug_id in selected:
+        await call.answer("Bu dori allaqachon tanlangan.", show_alert=True)
         return
 
-    await state.update_data(count=count, idx=0, items=[])
-    await m.answer(
-        t["ask_dori"].format(n=1, total=count),
-        reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
+    async with async_session() as session:
+        drug = await get_drug(session, drug_id)
+    if not drug:
+        await call.answer("Dori topilmadi", show_alert=True)
+        return
+
+    await state.update_data(current_drug_id=drug_id)
+    await state.set_state(SpetsifikatsiyaForm.enter_qty)
+    await call.message.edit_text(
+        f"💊 <b>{drug.name}</b>\n"
+        f"💰 Narxi: {int(drug.price):,}".replace(",", " ") + "\n\n"
+        "Nechta olasiz?",
+        reply_markup=get_qty_keyboard(drug_id),
     )
-    await state.set_state(SpetsifikatsiyaForm.item_dori)
+    await call.answer()
 
 
-@router.message(SpetsifikatsiyaForm.item_dori)
-async def sp_item_dori(m: Message, state: FSMContext):
+@router.message(SpetsifikatsiyaForm.enter_qty)
+async def enter_qty(m: Message, state: FSMContext):
     data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
-    await state.update_data(current_dori=m.text or "")
-    await m.answer(
-        t["ask_miqdor"],
-        reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.item_miqdor)
-
-
-@router.message(SpetsifikatsiyaForm.item_miqdor)
-async def sp_item_miqdor(m: Message, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
+    drug_id = data.get("current_drug_id")
     try:
         qty = float((m.text or "").replace(",", ".").strip())
+        if qty <= 0:
+            raise ValueError
     except ValueError:
-        await m.answer(t["error_digit"])
+        await m.answer("❌ Iltimos, musbat raqam kiriting.")
         return
-    await state.update_data(current_miqdor=qty)
-    await m.answer(
-        t["ask_narx"],
-        reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.item_narx)
+
+    async with async_session() as session:
+        drug = await get_drug(session, drug_id)
+    if not drug:
+        await m.answer("❌ Dori topilmadi.")
+        return
+
+    selected = data.get("selected", {})
+    selected[drug_id] = {
+        "name": drug.name,
+        "unit": drug.unit,
+        "price": drug.price,
+        "qty": qty,
+    }
+    await state.update_data(selected=selected)
+
+    await m.answer(f"✅ {drug.name} tanlandi.")
+    await _show_drugs(m, state)
 
 
-@router.message(SpetsifikatsiyaForm.item_narx)
-async def sp_item_narx(m: Message, state: FSMContext):
+@router.callback_query(F.data == "spec:done")
+async def spec_done(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
-    try:
-        price = float((m.text or "").replace(",", ".").replace(" ", "").strip())
-    except ValueError:
-        await m.answer(t["error_digit"])
+    selected = data.get("selected", {})
+    if not selected:
+        await call.answer("Hech narsa tanlanmagan.", show_alert=True)
         return
 
-    name = data.get("current_dori", "")
-    qty = data.get("current_miqdor", 0)
-    total = qty * price
+    items = []
+    for d in selected.values():
+        items.append({
+            "dori_nomi": d["name"],
+            "unit": d["unit"],
+            "miqdori": d["qty"],
+            "narxi": d["price"],
+            "umumiy_narxi": d["qty"] * d["price"],
+        })
 
-    items = data.get("items", [])
-    items.append({
-        "dori_nomi": name,
-        "miqdori": qty,
-        "narxi": price,
-        "umumiy_narxi": total,
-    })
-    idx = data.get("idx", 0) + 1
-    count = data.get("count", 0)
-    await state.update_data(items=items, idx=idx)
+    total = sum(i["umumiy_narxi"] for i in items)
+    await state.update_data(items=items, total=total)
 
-    if idx >= count:
-        await _show_confirm(m, state, lang)
-        return
-
-    await m.answer(
-        t["ask_dori"].format(n=idx + 1, total=count),
-        reply_markup=get_nav_keyboard(show_back=False, prefix="sp"),
-    )
-    await state.set_state(SpetsifikatsiyaForm.item_dori)
-
-
-async def _show_confirm(message: Message, state: FSMContext, lang: str):
-    data = await state.get_data()
-    t = TEXTS[lang]
-    items = data.get("items", [])
-    lines = [t["confirm"], ""]
-    lines.append(f"🔢 {data.get('spek_raqami', '—')}\n")
-    lines.append(t["drugs"])
+    lines = ["📋 <b>Tekshiring:</b>\n"]
     for i, item in enumerate(items, 1):
         lines.append(
             f"{i}. {item['dori_nomi']} — {item['miqdori']} x {item['narxi']} = {item['umumiy_narxi']}"
         )
+    lines.append(f"\n💰 <b>Jami:</b> {total:,.0f}".replace(",", " "))
+
     await state.set_state(SpetsifikatsiyaForm.confirm)
-    await message.answer("\n".join(lines), reply_markup=get_confirm_keyboard("sp"))
-
-
-@router.callback_query(F.data == "sp:cancel")
-async def sp_cancel(call: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
-    await state.clear()
-    await call.message.edit_text(t["cancel"])
-    await call.message.answer(t["menu"], reply_markup=get_main_menu(lang))
+    await call.message.edit_text("\n".join(lines), reply_markup=get_confirm_keyboard())
     await call.answer()
 
 
-@router.callback_query(F.data == "sp:restart")
-async def sp_restart(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "spec:cancel")
+async def spec_cancel(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
     await state.clear()
+    await call.message.edit_text("❌ Bekor qilindi.")
+    await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu(lang))
+    await call.answer()
+
+
+@router.callback_query(F.data == "spec:restart")
+async def spec_restart(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await state.update_data(selected={}, items=[], lang="uz")
     await call.message.edit_reply_markup(reply_markup=None)
-    await _start(call.message, state, lang)
+    await _show_drugs(call.message, state)
     await call.answer()
 
 
-@router.callback_query(F.data == "sp:back")
-async def sp_back(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "spec:submit")
+async def spec_submit(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    lang = data.get("lang", "uz")
-    await call.answer(TEXTS[lang]["back"], show_alert=True)
-
-
-@router.callback_query(F.data == "sp:submit")
-async def sp_submit(call: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    t = TEXTS[lang]
     items = data.get("items", [])
+    total = data.get("total", 0)
+    lang = data.get("lang", "uz")
+
+    async with async_session() as session:
+        spek = await save_spek(
+            session,
+            user_id=call.from_user.id,
+            user_name=call.from_user.full_name,
+            items=items,
+            total=total,
+        )
 
     payload = {
-        "spek_raqami": data.get("spek_raqami", ""),
+        "spek_raqami": spek.number,
         "items": items,
-        "jami_summa": sum(i["umumiy_narxi"] for i in items),
+        "jami_summa": total,
     }
 
-    await call.message.edit_text(t["creating"])
+    await call.message.edit_text("⏳ Hujjat tayyorlanmoqda...")
     await call.answer()
 
     try:
@@ -246,8 +200,7 @@ async def sp_submit(call: CallbackQuery, state: FSMContext):
     pdf_path = convert_to_pdf(docx_path)
     file_to_send = pdf_path if pdf_path else docx_path
     file = FSInputFile(str(file_to_send))
-
     await bot.send_document(call.from_user.id, file)
 
     await state.clear()
-    await call.message.answer(t["menu"], reply_markup=get_main_menu(lang))
+    await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu(lang))
