@@ -36,3 +36,15 @@ def get_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         input_field_placeholder="Menyudan tanlang...",
     )
+
+
+def get_menu_button(lang: str = "uz") -> ReplyKeyboardMarkup:
+    if lang == "ru":
+        buttons = [[KeyboardButton(text="🏠 Меню")]]
+    else:
+        buttons = [[KeyboardButton(text="🏠 Menu")]]
+
+    return ReplyKeyboardMarkup(
+        keyboard=buttons,
+        resize_keyboard=True,
+    )
