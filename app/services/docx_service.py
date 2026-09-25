@@ -3,8 +3,6 @@ from pathlib import Path
 
 from docx import Document
 from docx.shared import Pt
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
 from docxtpl import DocxTemplate
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -22,11 +20,8 @@ def _fmt_int(num) -> str:
         f = float(num)
         if f.is_integer():
             n = int(f)
-        else:
-            n = f
-        if isinstance(n, int):
             return f"{n:,}".replace(",", " ")
-        return str(n)
+        return str(f)
     except Exception:
         return str(num)
 
@@ -51,7 +46,6 @@ def render_spetsifikatsiya(data: dict) -> Path:
 
     context = {
         "spek_raqami": data.get("spek_raqami", ""),
-        "table": "",
         "jami_summa": _fmt_int(jami),
     }
     doc.render(context)
@@ -69,18 +63,17 @@ def render_spetsifikatsiya(data: dict) -> Path:
 def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
     doc = Document(docx_path)
 
-    # "{{ table }}" paragrafini topamiz
+    # "@@TABLE@@" paragrafini topamiz
     target_paragraph = None
     for para in doc.paragraphs:
-        if "table" in para.text.lower() or "{{" in para.text and "table" in para.text:
+        if "@@TABLE@@" in para.text:
             target_paragraph = para
             break
 
     if target_paragraph is None:
-        # Topilmasa, oxiriga qo‘shamiz
         target_paragraph = doc.add_paragraph()
 
-    # Jadval yaratamiz
+    # Jadval yaratamiz — hujjat oxiriga qo‘shiladi
     rows_count = 1 + len(items) + 1
     table = doc.add_table(rows=rows_count, cols=5)
     table.style = "Table Grid"
@@ -115,17 +108,19 @@ def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
 
     total_row = table.rows[-1]
     total_row.cells[0].text = "ИТОГО"
-    total_row.cells[4].text = _fmt_int(jami)
+    total_cell = total_row.cells[4]
+    total_cell.text = _fmt_int(jami)
+
     for cell in total_row.cells:
         for para in cell.paragraphs:
             for run in para.runs:
                 run.bold = True
                 run.font.size = Pt(10)
 
-    # Jadvalni "{{ table }}" paragrafining OLDIGA joylashtiramiz
+    # Jadvalni "@@TABLE@@" paragrafining OLDIGA joylashtiramiz
     target_paragraph._p.addprevious(table._tbl)
 
-    # "{{ table }}" matnini o‘chirib tashlaymiz
-    target_paragraph.text = ""
+    # Endi "@@TABLE@@" paragrafini butunlay o‘chirib tashlaymiz
+    target_paragraph._p.getparent().remove(target_paragraph._p)
 
     doc.save(docx_path)
