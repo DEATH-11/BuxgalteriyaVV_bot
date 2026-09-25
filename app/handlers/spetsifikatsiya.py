@@ -2,7 +2,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
 from app.database.base import async_session
@@ -41,7 +41,6 @@ async def _show_edit(message: Message, state: FSMContext):
     data = await state.get_data()
     selected = data.get("selected", {})
     if not selected:
-        # Hech narsa tanlanmagan — dorilar ro‘yxatiga qaytamiz
         await message.answer("ℹ️ Hozircha hech narsa tanlanmagan.")
         await _show_drugs(message, state)
         return
@@ -56,7 +55,6 @@ async def _show_edit(message: Message, state: FSMContext):
 async def start_spec_uz(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(selected={}, items=[], lang="uz")
-    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
     await message.answer("📊 <b>Spetsifikatsiya yaratish</b>")
     await _show_drugs(message, state)
 
@@ -65,7 +63,6 @@ async def start_spec_uz(message: Message, state: FSMContext):
 async def start_spec_ru(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(selected={}, items=[], lang="ru")
-    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
     await message.answer("📊 <b>Создание спецификации</b>")
     await _show_drugs(message, state)
 
@@ -88,9 +85,10 @@ async def pick_drug(call: CallbackQuery, state: FSMContext):
 
     await state.update_data(current_drug_id=drug_id)
     await state.set_state(SpetsifikatsiyaForm.enter_qty)
+    price_str = f"{int(drug.price):,}".replace(",", " ")
     await call.message.edit_text(
         f"💊 <b>{drug.name}</b>\n"
-        f"💰 Narxi: {int(drug.price):,}".replace(",", " ") + "\n\n"
+        f"💰 Narxi: {price_str}\n\n"
         "Nechta olasiz?",
         reply_markup=get_qty_keyboard(),
     )
@@ -198,13 +196,13 @@ async def spec_done(call: CallbackQuery, state: FSMContext):
 
     lines = ["📋 <b>Tekshiring:</b>\n"]
     for i, item in enumerate(items, 1):
-        total_str = f"{int(item['umumiy_narxi']):,}".replace(",", " ")
         price_str = f"{int(item['narxi']):,}".replace(",", " ")
+        total_str = f"{int(item['umumiy_narxi']):,}".replace(",", " ")
         lines.append(
             f"{i}. {item['dori_nomi']} — {item['miqdori']} x {price_str} = {total_str}"
         )
-    total_str = f"{int(total):,}".replace(",", " ")
-    lines.append(f"\n💰 <b>Jami:</b> {total_str}")
+    jami_str = f"{int(total):,}".replace(",", " ")
+    lines.append(f"\n💰 <b>Jami:</b> {jami_str}")
 
     await state.set_state(SpetsifikatsiyaForm.confirm)
     await call.message.edit_text("\n".join(lines), reply_markup=get_confirm_keyboard())
