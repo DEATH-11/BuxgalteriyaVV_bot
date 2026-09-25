@@ -15,12 +15,20 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-STEPS = [
-    ("shartnoma_raqami", "1/4 — 🔢 Shartnoma raqamini kiriting.\nMasalan: 197/25"),
-    ("sana", "2/4 — 📅 Sanani kiriting.\nMasalan: 24.09.2026"),
-    ("firma_nomi", "3/4 — 🏢 Firma nomini kiriting."),
-    ("stir_raqami", "4/4 — 🔢 STIR raqamini kiriting."),
-]
+STEPS = {
+    "uz": [
+        ("shartnoma_raqami", "1/4 — 🔢 Shartnoma raqamini kiriting.\nMasalan: 197/25"),
+        ("sana", "2/4 — 📅 Sanani kiriting.\nMasalan: 24.09.2026"),
+        ("firma_nomi", "3/4 — 🏢 Firma nomini kiriting."),
+        ("stir_raqami", "4/4 — 🔢 STIR raqamini kiriting."),
+    ],
+    "ru": [
+        ("shartnoma_raqami", "1/4 — 🔢 Введите номер договора.\nНапример: 197/25"),
+        ("sana", "2/4 — 📅 Введите дату.\nНапример: 24.09.2026"),
+        ("firma_nomi", "3/4 — 🏢 Введите название фирмы."),
+        ("stir_raqami", "4/4 — 🔢 Введите ИНН (СТИР)."),
+    ],
+}
 
 STATES = {
     "shartnoma_raqami": ShartnomaForm.shartnoma_raqami,
@@ -29,48 +37,87 @@ STATES = {
     "stir_raqami": ShartnomaForm.stir_raqami,
 }
 
+TEXTS = {
+    "uz": {
+        "title": "📄 <b>Shartnoma yaratish</b>",
+        "confirm": "📋 <b>Tekshiring:</b>",
+        "number": "🔢 Raqam",
+        "date": "📅 Sana",
+        "firm": "🏢 Firma",
+        "stir": "🔢 STIR",
+        "creating": "⏳ Hujjat tayyorlanmoqda...",
+        "menu": "Asosiy menyu:",
+    },
+    "ru": {
+        "title": "📄 <b>Создание договора</b>",
+        "confirm": "📋 <b>Проверьте:</b>",
+        "number": "🔢 Номер",
+        "date": "📅 Дата",
+        "firm": "🏢 Фирма",
+        "stir": "🔢 ИНН",
+        "creating": "⏳ Документ готовится...",
+        "menu": "Главное меню:",
+    },
+}
 
-async def _ask(message: Message, state: FSMContext, index: int):
-    if index >= len(STEPS):
-        await _show_confirm(message, state)
+
+async def _ask(message: Message, state: FSMContext, index: int, lang: str):
+    steps = STEPS.get(lang, STEPS["uz"])
+    if index >= len(steps):
+        await _show_confirm(message, state, lang)
         return
-    key, text = STEPS[index]
+    key, text = steps[index]
     await state.update_data(step=index)
     await state.set_state(STATES[key])
-    await message.answer(text, reply_markup=get_nav_keyboard(show_back=index > 0, prefix="sh"))
+    await message.answer(
+        text,
+        reply_markup=get_nav_keyboard(show_back=index > 0, prefix="sh"),
+    )
 
 
 async def _handle(message: Message, state: FSMContext):
     data = await state.get_data()
+    lang = data.get("lang", "uz")
     step = data.get("step", 0)
-    key = STEPS[step][0]
+    steps = STEPS.get(lang, STEPS["uz"])
+    key = steps[step][0]
     answers = data.get("answers", {})
     answers[key] = message.text or ""
     await state.update_data(answers=answers)
-    await _ask(message, state, step + 1)
+    await _ask(message, state, step + 1, lang)
 
 
-async def _show_confirm(message: Message, state: FSMContext):
+async def _show_confirm(message: Message, state: FSMContext, lang: str):
     data = await state.get_data()
     a = data.get("answers", {})
+    t = TEXTS.get(lang, TEXTS["uz"])
     text = (
-        "📋 <b>Tekshiring:</b>\n\n"
-        f"🔢 Raqam: {a.get('shartnoma_raqami', '—')}\n"
-        f"📅 Sana: {a.get('sana', '—')}\n"
-        f"🏢 Firma: {a.get('firma_nomi', '—')}\n"
-        f"🔢 STIR: {a.get('stir_raqami', '—')}"
+        f"{t['confirm']}\n\n"
+        f"{t['number']}: {a.get('shartnoma_raqami', '—')}\n"
+        f"{t['date']}: {a.get('sana', '—')}\n"
+        f"{t['firm']}: {a.get('firma_nomi', '—')}\n"
+        f"{t['stir']}: {a.get('stir_raqami', '—')}"
     )
     await state.set_state(ShartnomaForm.confirm)
     await message.answer(text, reply_markup=get_confirm_keyboard("sh"))
 
 
 @router.message(F.text == "📄 Shartnoma yaratish")
-async def start_shartnoma(message: Message, state: FSMContext):
+async def start_shartnoma_uz(message: Message, state: FSMContext):
     await state.clear()
-    await state.update_data(answers={}, step=0)
+    await state.update_data(answers={}, step=0, lang="uz")
     await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
-    await message.answer("📄 <b>Shartnoma yaratish</b>")
-    await _ask(message, state, 0)
+    await message.answer(TEXTS["uz"]["title"])
+    await _ask(message, state, 0, "uz")
+
+
+@router.message(F.text == "📄 Создать договор")
+async def start_shartnoma_ru(message: Message, state: FSMContext):
+    await state.clear()
+    await state.update_data(answers={}, step=0, lang="ru")
+    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
+    await message.answer(TEXTS["ru"]["title"])
+    await _ask(message, state, 0, "ru")
 
 
 @router.message(ShartnomaForm.shartnoma_raqami)
@@ -96,38 +143,48 @@ async def h_stir(m: Message, state: FSMContext):
 @router.callback_query(F.data == "sh:back")
 async def sh_back(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    lang = data.get("lang", "uz")
     step = data.get("step", 0)
     if step == 0:
-        await call.answer("Bu birinchi qadam.", show_alert=True)
+        await call.answer("Bu birinchi qadam." if lang == "uz" else "Это первый шаг.", show_alert=True)
         return
     await call.message.edit_reply_markup(reply_markup=None)
-    await _ask(call.message, state, step - 1)
+    await _ask(call.message, state, step - 1, lang)
     await call.answer()
 
 
 @router.callback_query(F.data == "sh:cancel")
 async def sh_cancel(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
     await state.clear()
-    await call.message.edit_text("❌ Bekor qilindi.")
-    await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu("uz"))
+    await call.message.edit_text("❌ Bekor qilindi." if lang == "uz" else "❌ Отменено.")
+    await call.message.answer(
+        "Asosiy menyu:" if lang == "uz" else "Главное меню:",
+        reply_markup=get_main_menu(lang),
+    )
     await call.answer()
 
 
 @router.callback_query(F.data == "sh:restart")
 async def sh_restart(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
     await state.clear()
-    await state.update_data(answers={}, step=0)
+    await state.update_data(answers={}, step=0, lang=lang)
     await call.message.edit_reply_markup(reply_markup=None)
-    await _ask(call.message, state, 0)
+    await _ask(call.message, state, 0, lang)
     await call.answer()
 
 
 @router.callback_query(F.data == "sh:submit")
 async def sh_submit(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    lang = data.get("lang", "uz")
     a = data.get("answers", {})
+    t = TEXTS.get(lang, TEXTS["uz"])
 
-    await call.message.edit_text("⏳ Hujjat tayyorlanmoqda...")
+    await call.message.edit_text(t["creating"])
     await call.answer()
 
     try:
@@ -145,4 +202,4 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     await bot.send_document(call.from_user.id, file)
 
     await state.clear()
-    await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu("uz"))
+    await call.message.answer(t["menu"], reply_markup=get_main_menu(lang))
