@@ -22,11 +22,13 @@ def get_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
         buttons = [
             [KeyboardButton(text="📄 Создать договор")],
             [KeyboardButton(text="📊 Создать спецификацию")],
+            [KeyboardButton(text="💊 Товары")],
         ]
     else:
         buttons = [
             [KeyboardButton(text="📄 Shartnoma yaratish")],
             [KeyboardButton(text="📊 Spetsifikatsiya yaratish")],
+            [KeyboardButton(text="💊 Dorilar")],
         ]
 
     return ReplyKeyboardMarkup(
