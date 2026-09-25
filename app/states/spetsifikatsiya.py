@@ -2,12 +2,9 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class SpetsifikatsiyaForm(StatesGroup):
-    raqam = State()
-    sana = State()
-    firma = State()
-    stir = State()
+    spek_raqami = State()
     count = State()
-    item_name = State()
-    item_qty = State()
-    item_price = State()
+    item_dori = State()
+    item_miqdor = State()
+    item_narx = State()
     confirm = State()
