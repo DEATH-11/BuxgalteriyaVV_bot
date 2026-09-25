@@ -8,6 +8,7 @@ from app.bot_instance import bot
 from app.keyboards.main_menu import get_main_menu
 from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
 from app.services.docx_service import render_spetsifikatsiya
+from app.services.pdf_service import convert_to_pdf
 from app.states.spetsifikatsiya import SpetsifikatsiyaForm
 
 logger = logging.getLogger(__name__)
@@ -172,7 +173,10 @@ async def sp_submit(call: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    file = FSInputFile(str(docx_path))
+    pdf_path = convert_to_pdf(docx_path)
+    file_to_send = pdf_path if pdf_path else docx_path
+    file = FSInputFile(str(file_to_send))
+
     await bot.send_document(call.from_user.id, file)
 
     await state.clear()
