@@ -41,7 +41,9 @@ async def _show_edit(message: Message, state: FSMContext):
     data = await state.get_data()
     selected = data.get("selected", {})
     if not selected:
-        await message.answer("❌ Hech narsa tanlanmagan.")
+        # Hech narsa tanlanmagan — dorilar ro‘yxatiga qaytamiz
+        await message.answer("ℹ️ Hozircha hech narsa tanlanmagan.")
+        await _show_drugs(message, state)
         return
     await state.set_state(SpetsifikatsiyaForm.pick_drug)
     await message.answer(
@@ -197,9 +199,9 @@ async def spec_done(call: CallbackQuery, state: FSMContext):
     lines = ["📋 <b>Tekshiring:</b>\n"]
     for i, item in enumerate(items, 1):
         total_str = f"{int(item['umumiy_narxi']):,}".replace(",", " ")
+        price_str = f"{int(item['narxi']):,}".replace(",", " ")
         lines.append(
-            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {int(item['narxi']):,}".replace(",", " ")
-            + f" = {total_str}"
+            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {price_str} = {total_str}"
         )
     total_str = f"{int(total):,}".replace(",", " ")
     lines.append(f"\n💰 <b>Jami:</b> {total_str}")
