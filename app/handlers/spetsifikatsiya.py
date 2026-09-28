@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
+from app.config import settings
 from app.database.base import async_session
 from app.database.repo import get_all_drugs, get_drug, save_spek
 from app.keyboards.main_menu import get_main_menu, get_menu_button
@@ -20,6 +21,21 @@ from app.states.spetsifikatsiya import SpetsifikatsiyaForm
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+async def _notify_admins(text: str):
+    for admin_id in settings.admin_list:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception as e:
+            logger.error(f"Admin notify failed ({admin_id}): {e}")
+
+
+def _fmt(num) -> str:
+    try:
+        return f"{int(round(float(num))):,}".replace(",", " ")
+    except Exception:
+        return str(num)
 
 
 async def _show_drugs(message: Message, state: FSMContext):
@@ -103,7 +119,7 @@ async def pick_drug(call: CallbackQuery, state: FSMContext):
 
     await state.update_data(current_drug_id=drug_id)
     await state.set_state(SpetsifikatsiyaForm.enter_qty)
-    price_str = f"{int(drug.price):,}".replace(",", " ")
+    price_str = _fmt(drug.price)
     await call.message.edit_text(
         f"💊 <b>{drug.name}</b>\n"
         f"💰 Narxi: {price_str}\n\n"
@@ -214,13 +230,10 @@ async def spec_done(call: CallbackQuery, state: FSMContext):
 
     lines = ["📋 <b>Tekshiring:</b>\n"]
     for i, item in enumerate(items, 1):
-        price_str = f"{int(item['narxi']):,}".replace(",", " ")
-        total_str = f"{int(item['umumiy_narxi']):,}".replace(",", " ")
         lines.append(
-            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {price_str} = {total_str}"
+            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {_fmt(item['narxi'])} = {_fmt(item['umumiy_narxi'])}"
         )
-    jami_str = f"{int(total):,}".replace(",", " ")
-    lines.append(f"\n💰 <b>Jami:</b> {jami_str}")
+    lines.append(f"\n💰 <b>Jami:</b> {_fmt(total)}")
 
     await state.set_state(SpetsifikatsiyaForm.confirm)
     await call.message.edit_text("\n".join(lines), reply_markup=get_confirm_keyboard())
@@ -283,6 +296,23 @@ async def spec_submit(call: CallbackQuery, state: FSMContext):
     file_to_send = pdf_path if pdf_path else docx_path
     file = FSInputFile(str(file_to_send))
     await bot.send_document(call.from_user.id, file)
+
+    # Admin ga xabar
+    user = call.from_user
+    username = f"@{user.username}" if user.username else "—"
+    lines = [
+        "📊 <b>YANGI SPETSIFFIKATSIYA</b>\n",
+        f"👤 User: {user.full_name}",
+        f"🔗 Username: {username}",
+        f"🔢 Raqam: {spek.number}",
+        f"💰 Jami: {_fmt(total)} so'm\n",
+        "💊 <b>Dorilar:</b>",
+    ]
+    for i, item in enumerate(items, 1):
+        lines.append(
+            f"{i}. {item['dori_nomi']} — {item['miqdori']} x {_fmt(item['narxi'])} = {_fmt(item['umumiy_narxi'])}"
+        )
+    await _notify_admins("\n".join(lines))
 
     await state.clear()
     await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu(lang))
