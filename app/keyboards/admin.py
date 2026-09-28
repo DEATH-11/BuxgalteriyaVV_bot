@@ -63,4 +63,45 @@ def get_contracts_menu() -> InlineKeyboardMarkup:
     )
 
 
-def get_contract
+def get_contracts_list_keyboard(contracts: list) -> InlineKeyboardMarkup:
+    buttons = []
+    for c in contracts:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📄 {c.firma} — {c.number}",
+                    callback_data=f"admin:contract:view:{c.id}",
+                )
+            ]
+        )
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:contracts")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_contract_view_keyboard(contract_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📥 PDF yuklab olish", callback_data=f"admin:contract:pdf:{contract_id}")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:contracts")],
+        ]
+    )
+
+
+def get_settings_menu(contract_prefix: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"🔢 Shartnoma raqami: {contract_prefix}",
+                callback_data="admin:settings:contract",
+            )],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")],
+        ]
+    )
+
+
+def get_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin:back")],
+        ]
+    )
