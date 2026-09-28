@@ -3,7 +3,7 @@ import json
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Contract, Drug, Setting, Spek, SpekCounter
+from app.database.models import Contract, Drug, Setting, Spek, SpekCounter, User
 
 
 # ========== SETTINGS ==========
@@ -22,6 +22,88 @@ async def set_setting(session: AsyncSession, key: str, value: str) -> None:
     else:
         setting.value = value
     await session.commit()
+
+
+# ========== USERS ==========
+
+async def get_user(session: AsyncSession, telegram_id: int) -> User | None:
+    result = await session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_by_id(session: AsyncSession, user_id: int) -> User | None:
+    result = await session.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
+async def create_user(
+    session: AsyncSession,
+    telegram_id: int,
+    username: str | None,
+    first_name: str,
+    last_name: str,
+    phone: str,
+    region: str,
+    language: str,
+) -> User:
+    user = User(
+        telegram_id=telegram_id,
+        username=username,
+        first_name=first_name,
+        last_name=last_name,
+        phone=phone,
+        region=region,
+        language=language,
+        status="pending",
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def update_user_language(
+    session: AsyncSession, telegram_id: int, language: str
+) -> None:
+    user = await get_user(session, telegram_id)
+    if user:
+        user.language = language
+        await session.commit()
+
+
+async def set_user_status(
+    session: AsyncSession, telegram_id: int, status: str
+) -> None:
+    user = await get_user(session, telegram_id)
+    if user:
+        user.status = status
+        await session.commit()
+
+
+async def get_all_users(
+    session: AsyncSession, status: str | None = None, limit: int = 200
+) -> list[User]:
+    stmt = select(User).order_by(User.created_at.desc()).limit(limit)
+    if status:
+        stmt = stmt.where(User.status == status)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def delete_user(session: AsyncSession, telegram_id: int) -> None:
+    user = await get_user(session, telegram_id)
+    if user:
+        await session.delete(user)
+        await session.commit()
+
+
+async def count_users_by_status(session: AsyncSession) -> dict:
+    result = await session.execute(
+        select(User.status, func.count()).group_by(User.status)
+    )
+    return {row[0]: row[1] for row in result.all()}
 
 
 # ========== DRUGS ==========
@@ -106,11 +188,6 @@ async def get_all_speks(session: AsyncSession, limit: int = 100) -> list[Spek]:
     return list(result.scalars().all())
 
 
-async def get_spek_by_number(session: AsyncSession, number: int) -> Spek | None:
-    result = await session.execute(select(Spek).where(Spek.number == number))
-    return result.scalar_one_or_none()
-
-
 # ========== CONTRACTS ==========
 
 async def get_contract_prefix(session: AsyncSession) -> str:
@@ -122,7 +199,6 @@ async def set_contract_prefix(session: AsyncSession, value: str) -> None:
 
 
 async def next_contract_number(session: AsyncSession) -> str:
-    """Oxirgi raqamni +1 qiladi va bazaga saqlaydi."""
     current = await get_setting(session, "contract_prefix", "1/26")
     try:
         if "/" in current:
