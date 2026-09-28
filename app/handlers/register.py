@@ -1,4 +1,5 @@
 import logging
+import re
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -32,6 +33,8 @@ TEXTS = {
         "denied": "❌ Sizga ruxsat berilmagan.",
         "pending": "⏳ Arizangiz admin tasdiqlashini kutmoqda.",
         "deleted": "🚫 Sizning hisobingiz o‘chirilgan.",
+        "err_name": "❌ Faqat harflar kiriting (raqam va belgilar bo‘lmasin).",
+        "err_phone": "❌ Faqat raqamlar kiriting.\nMasalan: +998 90 123 45 67",
     },
     "ru": {
         "ask_first": "1/4 — 👤 Введите имя:",
@@ -44,24 +47,45 @@ TEXTS = {
         "denied": "❌ Вам отказано в доступе.",
         "pending": "⏳ Ваша заявка ожидает подтверждения администратора.",
         "deleted": "🚫 Ваш аккаунт удалён.",
+        "err_name": "❌ Только буквы (без цифр и символов).",
+        "err_phone": "❌ Только цифры.\nНапример: +998 90 123 45 67",
     },
 }
 
 
+NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁёЎўҚқҒғҲҳʼ'`\- ]{2,50}$")
+PHONE_RE = re.compile(r"^\+?[0-9 \-()]{7,20}$")
+
+
+def _valid_name(text: str) -> bool:
+    return bool(NAME_RE.match(text.strip()))
+
+
+def _valid_phone(text: str) -> bool:
+    return bool(PHONE_RE.match(text.strip()))
+
+
 async def _notify_admins_new_user(user, username):
+    if username:
+        username_line = f"🔗 Username: <a href=\"https://t.me/{username}\">@{username}</a>"
+    else:
+        username_line = "🔗 Username: —"
+
     text = (
         "🆕 <b>YANGI ARIZA</b>\n\n"
         f"👤 Ism: {user.first_name}\n"
         f"👤 Familiya: {user.last_name}\n"
         f"📞 Telefon: {user.phone}\n"
         f"📍 Viloyat: {user.region}\n"
-        f"🔗 Username: {username or '—'}\n"
-        f"🆔 ID: <code>{user.telegram_id}</code>"
+        f"{username_line}"
     )
     for admin_id in settings.admin_list:
         try:
             await bot.send_message(
-                admin_id, text, reply_markup=get_admin_approve_keyboard(user.id)
+                admin_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=get_admin_approve_keyboard(user.id),
             )
         except Exception as e:
             logger.error(f"Admin notify failed ({admin_id}): {e}")
@@ -113,7 +137,11 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
 async def reg_first(m: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
-    await state.update_data(first_name=m.text or "")
+    text = (m.text or "").strip()
+    if not _valid_name(text):
+        await m.answer(TEXTS[lang]["err_name"])
+        return
+    await state.update_data(first_name=text)
     await state.set_state(RegisterForm.last_name)
     await m.answer(TEXTS[lang]["ask_last"])
 
@@ -122,7 +150,11 @@ async def reg_first(m: Message, state: FSMContext):
 async def reg_last(m: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
-    await state.update_data(last_name=m.text or "")
+    text = (m.text or "").strip()
+    if not _valid_name(text):
+        await m.answer(TEXTS[lang]["err_name"])
+        return
+    await state.update_data(last_name=text)
     await state.set_state(RegisterForm.phone)
     await m.answer(TEXTS[lang]["ask_phone"])
 
@@ -131,7 +163,11 @@ async def reg_last(m: Message, state: FSMContext):
 async def reg_phone(m: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
-    await state.update_data(phone=m.text or "")
+    text = (m.text or "").strip()
+    if not _valid_phone(text):
+        await m.answer(TEXTS[lang]["err_phone"])
+        return
+    await state.update_data(phone=text)
     await state.set_state(RegisterForm.region)
     await m.answer(TEXTS[lang]["ask_region"], reply_markup=get_region_keyboard(lang))
 
