@@ -1,11 +1,22 @@
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.config import settings
 from app.database.base import async_session
 from app.database.repo import get_user
+from app.states.register import RegisterForm
+
+
+REGISTER_STATES = {
+    RegisterForm.first_name.state,
+    RegisterForm.last_name.state,
+    RegisterForm.phone.state,
+    RegisterForm.region.state,
+    RegisterForm.confirm.state,
+}
 
 
 class AuthMiddleware(BaseMiddleware):
@@ -29,8 +40,14 @@ class AuthMiddleware(BaseMiddleware):
         if user and user.status == "approved":
             return await handler(event, data)
 
-        # Tasdiqlanmagan — hech narsa qilmaymiz
-        # Faqat /start va til tanlash uchun ruxsat beramiz
+        # Ro‘yxatdan o‘tish state’ida — ruxsat beramiz
+        state: FSMContext | None = data.get("state")
+        if state is not None:
+            current = await state.get_state()
+            if current in REGISTER_STATES:
+                return await handler(event, data)
+
+        # /start, /menu va lang: — ruxsat
         if isinstance(event, Message):
             text = event.text or ""
             if text.startswith("/start") or text == "/menu":
