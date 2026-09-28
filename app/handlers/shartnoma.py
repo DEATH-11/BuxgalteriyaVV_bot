@@ -8,7 +8,11 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from app.bot_instance import bot
 from app.config import settings
 from app.database.base import async_session
-from app.database.repo import next_contract_number, save_contract
+from app.database.repo import (
+    get_user,
+    next_contract_number,
+    save_contract,
+)
 from app.keyboards.main_menu import get_main_menu, get_menu_button
 from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
 from app.services.docx_service import render_shartnoma
@@ -45,6 +49,7 @@ TEXTS = {
         "date": "📅 Sana",
         "firm": "🏢 Firma",
         "inn": "🔢 INN",
+        "denied": "⛔ Siz tasdiqlanmagansiz.",
     },
     "ru": {
         "title": "📄 <b>Создание договора</b>",
@@ -55,8 +60,15 @@ TEXTS = {
         "date": "📅 Дата",
         "firm": "🏢 Фирма",
         "inn": "🔢 ИНН",
+        "denied": "⛔ Вы не подтверждены.",
     },
 }
+
+
+async def _check_approved(user_id: int) -> bool:
+    async with async_session() as session:
+        u = await get_user(session, user_id)
+    return bool(u and u.status == "approved")
 
 
 async def _notify_admins(text: str):
@@ -110,28 +122,6 @@ async def _show_confirm(message: Message, state: FSMContext, lang: str):
     await message.answer(text, reply_markup=get_confirm_keyboard("sh"))
 
 
-@router.message(F.text == "📄 Shartnoma yaratish")
-async def start_shartnoma_uz(message: Message, state: FSMContext):
-    await state.clear()
-    await state.update_data(answers={}, step=0, lang="uz")
-    await message.answer(
-        TEXTS["uz"]["title"],
-        reply_markup=get_menu_button("uz"),
-    )
-    await _prepare_and_ask(message, state, "uz")
-
-
-@router.message(F.text == "📄 Создать договор")
-async def start_shartnoma_ru(message: Message, state: FSMContext):
-    await state.clear()
-    await state.update_data(answers={}, step=0, lang="ru")
-    await message.answer(
-        TEXTS["ru"]["title"],
-        reply_markup=get_menu_button("ru"),
-    )
-    await _prepare_and_ask(message, state, "ru")
-
-
 async def _prepare_and_ask(message: Message, state: FSMContext, lang: str):
     async with async_session() as session:
         number = await next_contract_number(session)
@@ -142,6 +132,28 @@ async def _prepare_and_ask(message: Message, state: FSMContext, lang: str):
     else:
         await message.answer(f"🔢 Номер: <b>{number}</b>\n📅 Дата: <b>{date}</b>")
     await _ask(message, state, 0, lang)
+
+
+@router.message(F.text == "📄 Shartnoma yaratish")
+async def start_shartnoma_uz(message: Message, state: FSMContext):
+    if not await _check_approved(message.from_user.id):
+        await message.answer(TEXTS["uz"]["denied"])
+        return
+    await state.clear()
+    await state.update_data(answers={}, step=0, lang="uz")
+    await message.answer(TEXTS["uz"]["title"], reply_markup=get_menu_button("uz"))
+    await _prepare_and_ask(message, state, "uz")
+
+
+@router.message(F.text == "📄 Создать договор")
+async def start_shartnoma_ru(message: Message, state: FSMContext):
+    if not await _check_approved(message.from_user.id):
+        await message.answer(TEXTS["ru"]["denied"])
+        return
+    await state.clear()
+    await state.update_data(answers={}, step=0, lang="ru")
+    await message.answer(TEXTS["ru"]["title"], reply_markup=get_menu_button("ru"))
+    await _prepare_and_ask(message, state, "ru")
 
 
 @router.message(F.text == "🏠 Menu")
@@ -197,6 +209,9 @@ async def sh_cancel(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "sh:restart")
 async def sh_restart(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     data = await state.get_data()
     lang = data.get("lang", "uz")
     await state.clear()
@@ -208,6 +223,11 @@ async def sh_restart(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "sh:submit")
 async def sh_submit(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        await state.clear()
+        return
+
     data = await state.get_data()
     lang = data.get("lang", "uz")
     a = data.get("answers", {})
@@ -261,7 +281,6 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     file = FSInputFile(str(file_to_send))
     await bot.send_document(call.from_user.id, file)
 
-    # Admin ga xabar
     user = call.from_user
     username = f"@{user.username}" if user.username else "—"
     notify_text = (
