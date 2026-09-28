@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
+from app.config import settings
 from app.database.base import async_session
 from app.database.repo import next_contract_number, save_contract
 from app.keyboards.main_menu import get_main_menu, get_menu_button
@@ -56,6 +57,14 @@ TEXTS = {
         "inn": "🔢 ИНН",
     },
 }
+
+
+async def _notify_admins(text: str):
+    for admin_id in settings.admin_list:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception as e:
+            logger.error(f"Admin notify failed ({admin_id}): {e}")
 
 
 async def _ask(message: Message, state: FSMContext, index: int, lang: str):
@@ -251,6 +260,20 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
 
     file = FSInputFile(str(file_to_send))
     await bot.send_document(call.from_user.id, file)
+
+    # Admin ga xabar
+    user = call.from_user
+    username = f"@{user.username}" if user.username else "—"
+    notify_text = (
+        "📄 <b>YANGI SHARTNOMA</b>\n\n"
+        f"👤 User: {user.full_name}\n"
+        f"🔗 Username: {username}\n"
+        f"🏢 Firma: {payload['firma_nomi']}\n"
+        f"🔢 INN: {payload['stir_raqami']}\n"
+        f"🔢 Raqam: {payload['shartnoma_raqami']}\n"
+        f"📅 Sana: {payload['sana']}"
+    )
+    await _notify_admins(notify_text)
 
     await state.clear()
     await call.message.answer(t["menu"], reply_markup=get_main_menu(lang))
