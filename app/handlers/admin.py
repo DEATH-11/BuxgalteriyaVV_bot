@@ -14,8 +14,10 @@ from app.database.repo import (
     get_all_drugs,
     get_all_speks,
     get_contract,
+    get_contract_prefix,
     get_contracts_by_inn,
     get_drug,
+    set_contract_prefix,
     update_drug,
 )
 from app.keyboards.admin import (
@@ -27,8 +29,9 @@ from app.keyboards.admin import (
     get_drug_edit_keyboard,
     get_drugs_list_keyboard,
     get_drugs_menu,
+    get_settings_menu,
 )
-from app.states.admin import AdminContractForm, AdminDrugForm
+from app.states.admin import AdminContractForm, AdminDrugForm, AdminSettingsForm
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -352,3 +355,65 @@ async def admin_speks(call: CallbackQuery):
         lines.append(f"№ {s.number} — {s.user_name} — {total_str} so'm")
     await call.message.edit_text("\n".join(lines), reply_markup=get_admin_menu())
     await call.answer()
+
+
+# ========== SETTINGS ==========
+
+@router.callback_query(F.data == "admin:settings")
+async def admin_settings(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("Ruxsat yo‘q", show_alert=True)
+        return
+    await state.clear()
+    async with async_session() as session:
+        prefix = await get_contract_prefix(session)
+    await call.message.edit_text(
+        "⚙️ <b>Sozlamalar</b>",
+        reply_markup=get_settings_menu(prefix),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "admin:settings:contract")
+async def settings_contract_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    async with async_session() as session:
+        prefix = await get_contract_prefix(session)
+    await state.set_state(AdminSettingsForm.edit_contract_number)
+    await call.message.edit_text(
+        f"🔢 <b>Shartnoma raqami</b>\n\n"
+        f"Oxirgi raqam: <b>{prefix}</b>\n\n"
+        f"Yangi raqamni kiriting (masalan: 190/26):",
+        reply_markup=get_cancel_keyboard(),
+    )
+    await call.answer()
+
+
+@router.message(AdminSettingsForm.edit_contract_number)
+async def settings_contract_save(m: Message, state: FSMContext):
+    if not is_admin(m.from_user.id):
+        return
+    value = (m.text or "").strip()
+    if not value:
+        await m.answer("❌ Bo‘sh bo‘lmasin.")
+        return
+    async with async_session() as session:
+        await set_contract_prefix(session, value)
+        prefix = await get_contract_prefix(session)
+    await state.clear()
+    await m.answer(
+        f"✅ Shartnoma raqami o‘rnatildi: <b>{prefix}</b>\n\n"
+        f"Keyingi shartnoma: <b>{_next_preview(prefix)}</b>",
+        reply_markup=get_settings_menu(prefix),
+    )
+
+
+def _next_preview(prefix: str) -> str:
+    try:
+        if "/" in prefix:
+            num_part, suffix = prefix.split("/", 1)
+            return f"{int(num_part) + 1}/{suffix}"
+        return str(int(prefix) + 1)
+    except ValueError:
+        return prefix
