@@ -4,7 +4,12 @@ from datetime import timedelta, timezone
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    Message,
+    ReplyKeyboardRemove,
+)
 
 from app.bot_instance import bot
 from app.config import settings
@@ -187,6 +192,7 @@ async def admin_user_del(call: CallbackQuery, state: FSMContext):
         tg_id = u.telegram_id
         await delete_user(session, tg_id)
 
+    # Userga xabar + menyuni o‘chirish
     try:
         await bot.send_message(
             tg_id,
@@ -195,6 +201,7 @@ async def admin_user_del(call: CallbackQuery, state: FSMContext):
             "Sizning hisobingiz administrator tomonidan "
             "<b>botdan foydalanish huquqidan chetlatildi</b>.\n\n"
             "Savollar bo‘lsa, administrator bilan bog‘laning.",
+            reply_markup=ReplyKeyboardRemove(),
         )
     except Exception as e:
         logger.error(f"Notify deleted user failed: {e}")
@@ -253,6 +260,7 @@ async def reject_user(call: CallbackQuery):
         await bot.send_message(
             tg_id,
             "❌ <b>Afsus, arizangiz rad etildi.</b>",
+            reply_markup=ReplyKeyboardRemove(),
         )
     except Exception as e:
         logger.error(f"Notify user failed: {e}")
