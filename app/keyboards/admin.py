@@ -7,6 +7,7 @@ def get_admin_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="💊 Dorilar", callback_data="admin:drugs")],
             [InlineKeyboardButton(text="📄 Shartnomalar", callback_data="admin:contracts")],
             [InlineKeyboardButton(text="📊 Spetsifikatsiyalar", callback_data="admin:speks")],
+            [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="admin:settings")],
         ]
     )
 
@@ -62,33 +63,4 @@ def get_contracts_menu() -> InlineKeyboardMarkup:
     )
 
 
-def get_contracts_list_keyboard(contracts: list) -> InlineKeyboardMarkup:
-    buttons = []
-    for c in contracts:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"📄 {c.firma} — {c.number}",
-                    callback_data=f"admin:contract:view:{c.id}",
-                )
-            ]
-        )
-    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:contracts")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def get_contract_view_keyboard(contract_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📥 PDF yuklab olish", callback_data=f"admin:contract:pdf:{contract_id}")],
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:contracts")],
-        ]
-    )
-
-
-def get_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin:back")],
-        ]
-    )
+def get_contract
