@@ -3,8 +3,28 @@ import json
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Contract, Drug, Spek, SpekCounter
+from app.database.models import Contract, Drug, Setting, Spek, SpekCounter
 
+
+# ========== SETTINGS ==========
+
+async def get_setting(session: AsyncSession, key: str, default: str = "") -> str:
+    result = await session.execute(select(Setting).where(Setting.key == key))
+    setting = result.scalar_one_or_none()
+    return setting.value if setting else default
+
+
+async def set_setting(session: AsyncSession, key: str, value: str) -> None:
+    result = await session.execute(select(Setting).where(Setting.key == key))
+    setting = result.scalar_one_or_none()
+    if setting is None:
+        session.add(Setting(key=key, value=value))
+    else:
+        setting.value = value
+    await session.commit()
+
+
+# ========== DRUGS ==========
 
 async def get_all_drugs(session: AsyncSession) -> list[Drug]:
     result = await session.execute(select(Drug).order_by(Drug.name))
@@ -41,6 +61,8 @@ async def delete_drug(session: AsyncSession, drug_id: int) -> None:
         await session.delete(drug)
         await session.commit()
 
+
+# ========== SPEKS ==========
 
 async def next_spek_number(session: AsyncSession) -> int:
     result = await session.execute(select(SpekCounter))
@@ -87,6 +109,33 @@ async def get_all_speks(session: AsyncSession, limit: int = 100) -> list[Spek]:
 async def get_spek_by_number(session: AsyncSession, number: int) -> Spek | None:
     result = await session.execute(select(Spek).where(Spek.number == number))
     return result.scalar_one_or_none()
+
+
+# ========== CONTRACTS ==========
+
+async def get_contract_prefix(session: AsyncSession) -> str:
+    return await get_setting(session, "contract_prefix", "1/26")
+
+
+async def set_contract_prefix(session: AsyncSession, value: str) -> None:
+    await set_setting(session, "contract_prefix", value)
+
+
+async def next_contract_number(session: AsyncSession) -> str:
+    """Oxirgi raqamni +1 qiladi va bazaga saqlaydi."""
+    current = await get_setting(session, "contract_prefix", "1/26")
+    try:
+        if "/" in current:
+            num_part, suffix = current.split("/", 1)
+            new_num = int(num_part) + 1
+            new_value = f"{new_num}/{suffix}"
+        else:
+            new_value = str(int(current) + 1)
+    except ValueError:
+        new_value = current
+
+    await set_setting(session, "contract_prefix", new_value)
+    return new_value
 
 
 async def save_contract(
