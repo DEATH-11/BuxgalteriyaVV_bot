@@ -37,7 +37,6 @@ from app.keyboards.admin import (
     get_settings_menu,
     get_user_view_keyboard,
     get_users_menu,
-    get_users_status_keyboard,
 )
 from app.keyboards.main_menu import get_main_menu
 from app.states.admin import AdminContractForm, AdminDrugForm, AdminSettingsForm
@@ -69,12 +68,7 @@ async def admin_back(call: CallbackQuery, state: FSMContext):
 
 # ========== USERS ==========
 
-@router.callback_query(F.data == "admin:users")
-async def admin_users(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        await call.answer("Ruxsat yo‘q", show_alert=True)
-        return
-    await state.clear()
+async def _users_menu_text(call: CallbackQuery):
     async with async_session() as session:
         counts = await count_users_by_status(session)
     total = sum(counts.values())
@@ -88,7 +82,19 @@ async def admin_users(call: CallbackQuery, state: FSMContext):
         f"✅ Tasdiqlangan: <b>{approved}</b>\n"
         f"❌ Rad etilgan: <b>{rejected}</b>"
     )
-    await call.message.edit_text(text, reply_markup=get_users_menu())
+    try:
+        await call.message.edit_text(text, reply_markup=get_users_menu())
+    except Exception:
+        await call.message.answer(text, reply_markup=get_users_menu())
+
+
+@router.callback_query(F.data == "admin:users")
+async def admin_users(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("Ruxsat yo‘q", show_alert=True)
+        return
+    await state.clear()
+    await _users_menu_text(call)
     await call.answer()
 
 
@@ -108,21 +114,24 @@ async def admin_users_list(call: CallbackQuery):
         return
 
     lines = [f"👥 <b>Foydalanuvchilar ({len(users)}):</b>\n"]
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     buttons = []
     for u in users:
         uname = f"@{u.username}" if u.username else "—"
         status_icon = {"pending": "⏳", "approved": "✅", "rejected": "❌"}.get(u.status, "?")
         lines.append(f"{status_icon} {u.first_name} {u.last_name} — {uname}")
         buttons.append([
-            __import__("aiogram").types.InlineKeyboardButton(
+            InlineKeyboardButton(
                 text=f"{status_icon} {u.first_name} {u.last_name}",
                 callback_data=f"admin:user:view:{u.id}",
             )
         ])
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:users")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await call.message.edit_text("\n".join(lines), reply_markup=kb)
+    try:
+        await call.message.edit_text("\n".join(lines), reply_markup=kb)
+    except Exception:
+        await call.message.answer("\n".join(lines), reply_markup=kb)
     await call.answer()
 
 
@@ -152,19 +161,37 @@ async def admin_user_view(call: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("admin:user:del:"))
-async def admin_user_del(call: CallbackQuery):
+async def admin_user_del(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return
     user_id = int(call.data.split(":")[3])
+
     async with async_session() as session:
         u = await get_user_by_id(session, user_id)
-        if u:
-            await delete_user(session, u.telegram_id)
-    await call.answer("🗑 O‘chirildi")
-    await admin_users(call, None)
+        if not u:
+            await call.answer("Topilmadi", show_alert=True)
+            return
+        tg_id = u.telegram_id
+        await delete_user(session, tg_id)
+
+    try:
+        await bot.send_message(
+            tg_id,
+            "🚫 <b>Hisobingiz o‘chirildi</b>\n\n"
+            "Hurmatli foydalanuvchi,\n\n"
+            "Sizning hisobingiz administrator tomonidan "
+            "<b>botdan foydalanish huquqidan chetlatildi</b>.\n\n"
+            "Savollar bo‘lsa, administrator bilan bog‘laning.",
+        )
+    except Exception as e:
+        logger.error(f"Notify deleted user failed: {e}")
+
+    await call.answer("🗑 O‘chirildi", show_alert=False)
+    await state.clear()
+    await _users_menu_text(call)
 
 
-# ========== APPROVE / REJECT (callback from notification) ==========
+# ========== APPROVE / REJECT ==========
 
 @router.callback_query(F.data.startswith("approve:"))
 async def approve_user(call: CallbackQuery):
@@ -183,15 +210,16 @@ async def approve_user(call: CallbackQuery):
     try:
         await bot.send_message(
             tg_id,
-            "✅ <b>Zayavkangiz tasdiqlandi!</b>\n\nBotdan foydalanishingiz mumkin.",
+            "✅ <b>Arizangiz tasdiqlandi!</b>\n\nBotdan foydalanishingiz mumkin.",
             reply_markup=get_main_menu(lang),
         )
     except Exception as e:
         logger.error(f"Notify user failed: {e}")
 
-    await call.message.edit_text(
-        call.message.html_text + "\n\n✅ <b>TASDIQLANDI</b>"
-    )
+    try:
+        await call.message.edit_text(call.message.html_text + "\n\n✅ <b>TASDIQLANDI</b>")
+    except Exception:
+        pass
     await call.answer("Tasdiqlandi")
 
 
@@ -206,20 +234,20 @@ async def reject_user(call: CallbackQuery):
             await call.answer("Topilmadi", show_alert=True)
             return
         await set_user_status(session, u.telegram_id, "rejected")
-        lang = u.language
         tg_id = u.telegram_id
 
     try:
         await bot.send_message(
             tg_id,
-            "❌ <b>Afsus, sizga ruxsat berilmadi.</b>",
+            "❌ <b>Afsus, arizangiz rad etildi.</b>",
         )
     except Exception as e:
         logger.error(f"Notify user failed: {e}")
 
-    await call.message.edit_text(
-        call.message.html_text + "\n\n❌ <b>RAD ETILDI</b>"
-    )
+    try:
+        await call.message.edit_text(call.message.html_text + "\n\n❌ <b>RAD ETILDI</b>")
+    except Exception:
+        pass
     await call.answer("Rad etildi")
 
 
