@@ -11,10 +11,16 @@ from app.handlers import register as register_handlers
 from app.handlers import shartnoma as shartnoma_handlers
 from app.handlers import spetsifikatsiya as spets_handlers
 from app.handlers import start as start_handlers
+from app.middlewares.auth import AuthMiddleware
 
 logging.basicConfig(level=logging.INFO)
 
 dp = Dispatcher()
+
+# Middleware — barcha message va callback_query uchun
+dp.message.middleware(AuthMiddleware())
+dp.callback_query.middleware(AuthMiddleware())
+
 dp.include_router(start_handlers.router)
 dp.include_router(register_handlers.router)
 dp.include_router(admin_handlers.router)
