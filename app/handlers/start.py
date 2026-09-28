@@ -15,20 +15,21 @@ TEXTS = {
         "menu_prompt": "Asosiy menyu:",
         "pending": "⏳ Arizangiz admin tasdiqlashini kutmoqda.",
         "rejected": "❌ Sizga ruxsat berilmagan.",
-        "deleted": "🚫 Sizning hisobingiz o‘chirilgan. Botdan foydalana olmaysiz.",
+        "deleted": "🚫 Sizning hisobingiz o‘chirilgan.\n\nBotdan foydalana olmaysiz.",
     },
     "ru": {
         "welcome": "Здравствуйте, {name}!\n\nВыберите язык:",
         "menu_prompt": "Главное меню:",
         "pending": "⏳ Ваша заявка ожидает подтверждения администратора.",
         "rejected": "❌ Вам отказано в доступе.",
-        "deleted": "🚫 Ваш аккаунт удалён. Вы не можете пользоваться ботом.",
+        "deleted": "🚫 Ваш аккаунт удалён.\n\nВы не можете пользоваться ботом.",
     },
 }
 
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    # Avval menyuni olib tashlaymiz
     await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
 
     async with async_session() as session:
@@ -51,12 +52,20 @@ async def cmd_start(message: Message):
             reply_markup=get_main_menu(lang),
         )
     elif status == "pending":
-        await message.answer(TEXTS[lang]["pending"])
+        await message.answer(
+            TEXTS[lang]["pending"],
+            reply_markup=ReplyKeyboardRemove(),
+        )
     elif status == "rejected":
-        await message.answer(TEXTS[lang]["rejected"])
+        await message.answer(
+            TEXTS[lang]["rejected"],
+            reply_markup=ReplyKeyboardRemove(),
+        )
     else:
-        # deleted yoki boshqa holat
-        await message.answer(TEXTS[lang]["deleted"])
+        await message.answer(
+            TEXTS[lang]["deleted"],
+            reply_markup=ReplyKeyboardRemove(),
+        )
 
 
 @router.message(Command("menu"))
@@ -69,7 +78,18 @@ async def cmd_menu(message: Message):
             "Asosiy menyu:",
             reply_markup=get_main_menu(user.language),
         )
-    elif user and user.status == "pending":
+        return
+
+    # Tasdiqlanmagan, rad etilgan, o‘chirilgan — menu yo‘q
+    await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
+    if user is None:
+        await message.answer(
+            TEXTS["uz"]["welcome"].format(name=message.from_user.full_name),
+            reply_markup=get_language_keyboard(),
+        )
+    elif user.status == "pending":
         await message.answer(TEXTS[user.language]["pending"])
-    elif user and user.status == "rejected":
+    elif user.status == "rejected":
         await message.answer(TEXTS[user.language]["rejected"])
+    else:
+        await message.answer(TEXTS[user.language]["deleted"])
