@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta, timezone
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -44,9 +45,23 @@ from app.states.admin import AdminContractForm, AdminDrugForm, AdminSettingsForm
 logger = logging.getLogger(__name__)
 router = Router()
 
+TASHKENT_TZ = timezone(timedelta(hours=5))
+
+STATUS_LABELS = {
+    "pending": "⏳ Kutilmoqda",
+    "approved": "✅ Tasdiqlangan",
+    "rejected": "❌ Rad etilgan",
+}
+
 
 def is_admin(user_id: int) -> bool:
     return user_id in settings.admin_list
+
+
+def _tashkent(dt):
+    if dt is None:
+        return "—"
+    return (dt.astimezone(TASHKENT_TZ)).strftime("%d.%m.%Y %H:%M")
 
 
 @router.message(Command("admin"))
@@ -113,13 +128,10 @@ async def admin_users_list(call: CallbackQuery):
         await call.answer("Bo‘sh", show_alert=True)
         return
 
-    lines = [f"👥 <b>Foydalanuvchilar ({len(users)}):</b>\n"]
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     buttons = []
     for u in users:
-        uname = f"@{u.username}" if u.username else "—"
         status_icon = {"pending": "⏳", "approved": "✅", "rejected": "❌"}.get(u.status, "?")
-        lines.append(f"{status_icon} {u.first_name} {u.last_name} — {uname}")
         buttons.append([
             InlineKeyboardButton(
                 text=f"{status_icon} {u.first_name} {u.last_name}",
@@ -128,10 +140,11 @@ async def admin_users_list(call: CallbackQuery):
         ])
     buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:users")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    text = f"👥 <b>Foydalanuvchilar ({len(users)}):</b>"
     try:
-        await call.message.edit_text("\n".join(lines), reply_markup=kb)
+        await call.message.edit_text(text, reply_markup=kb)
     except Exception:
-        await call.message.answer("\n".join(lines), reply_markup=kb)
+        await call.message.answer(text, reply_markup=kb)
     await call.answer()
 
 
@@ -145,16 +158,16 @@ async def admin_user_view(call: CallbackQuery):
     if not u:
         await call.answer("Topilmadi", show_alert=True)
         return
-    created = u.created_at.strftime("%d.%m.%Y %H:%M") if u.created_at else "—"
+
+    status_label = STATUS_LABELS.get(u.status, u.status)
     text = (
         f"👤 <b>{u.first_name} {u.last_name}</b>\n\n"
         f"🔗 Username: @{u.username or '—'}\n"
-        f"🆔 ID: <code>{u.telegram_id}</code>\n"
         f"📞 Telefon: {u.phone}\n"
         f"📍 Viloyat: {u.region}\n"
         f"🌐 Til: {u.language}\n"
-        f"📊 Holat: {u.status}\n"
-        f"📅 Ro‘yxatdan: {created}"
+        f"📊 Holat: {status_label}\n"
+        f"📅 Ro‘yxatdan: {_tashkent(u.created_at)}"
     )
     await call.message.edit_text(text, reply_markup=get_user_view_keyboard(u.id))
     await call.answer()
@@ -487,7 +500,6 @@ async def contract_view(call: CallbackQuery):
     if not c:
         await call.answer("Topilmadi", show_alert=True)
         return
-    created = c.created_at.strftime("%d.%m.%Y %H:%M") if c.created_at else "—"
     text = (
         f"📄 <b>Shartnoma</b>\n\n"
         f"🏢 Firma: {c.firma}\n"
@@ -495,7 +507,7 @@ async def contract_view(call: CallbackQuery):
         f"🔢 Raqam: {c.number}\n"
         f"📅 Sana: {c.date}\n"
         f"👤 Yuboruvchi: {c.user_name}\n"
-        f"📅 Yaratilgan: {created}"
+        f"📅 Yaratilgan: {_tashkent(c.created_at)}"
     )
     await call.message.edit_text(text, reply_markup=get_contract_view_keyboard(contract_id))
     await call.answer()
