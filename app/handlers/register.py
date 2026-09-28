@@ -27,10 +27,10 @@ TEXTS = {
         "ask_phone": "3/4 — 📞 Telefon raqamingizni kiriting.\nMasalan: +998 90 123 45 67",
         "ask_region": "4/4 — 📍 Viloyatingizni tanlang:",
         "confirm": "📋 <b>Tekshiring:</b>\n\n👤 Ism: {f}\n👤 Familiya: {l}\n📞 Telefon: {p}\n📍 Viloyat: {r}\n\nYuborilsinmi?",
-        "sent": "✅ Zayavkangiz yuborildi.\n\nAdmin tasdiqlashini kuting.",
+        "sent": "✅ Arizangiz yuborildi.\n\nAdmin tasdiqlashini kuting.",
         "menu": "Asosiy menyu:",
         "denied": "❌ Sizga ruxsat berilmagan.",
-        "pending": "⏳ Zayavkangiz admin tasdiqlashini kutmoqda.",
+        "pending": "⏳ Arizangiz admin tasdiqlashini kutmoqda.",
     },
     "ru": {
         "ask_first": "1/4 — 👤 Введите имя:",
@@ -48,7 +48,7 @@ TEXTS = {
 
 async def _notify_admins_new_user(user, username):
     text = (
-        "🆕 <b>YANGI FOYDALANUVCHI</b>\n\n"
+        "🆕 <b>YANGI ARIZA</b>\n\n"
         f"👤 Ism: {user.first_name}\n"
         f"👤 Familiya: {user.last_name}\n"
         f"📞 Telefon: {user.phone}\n"
@@ -65,8 +65,6 @@ async def _notify_admins_new_user(user, username):
             logger.error(f"Admin notify failed ({admin_id}): {e}")
 
 
-# ========== TIL TANLASH (register router) ==========
-
 @router.callback_query(F.data.startswith("lang:"))
 async def set_lang_register(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":")[1]
@@ -75,7 +73,6 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
         user = await get_user(session, call.from_user.id)
 
     if user is None:
-        # Yangi user — ro‘yxatdan o‘tishga
         await state.clear()
         await state.update_data(lang=lang)
         await state.set_state(RegisterForm.first_name)
@@ -104,8 +101,6 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
             pass
     await call.answer()
 
-
-# ========== RO‘YXATDAN O‘TISH ==========
 
 @router.message(RegisterForm.first_name)
 async def reg_first(m: Message, state: FSMContext):
@@ -182,8 +177,6 @@ async def reg_cancel(call: CallbackQuery, state: FSMContext):
         await call.message.answer("❌ Bekor qilindi.")
     await call.answer()
 
-
-# ========== VILOYAT TANLASH ==========
 
 @router.callback_query(F.data.startswith("reg:"))
 async def reg_region(call: CallbackQuery, state: FSMContext):
