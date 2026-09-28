@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -6,7 +7,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
 from app.database.base import async_session
-from app.database.repo import save_contract
+from app.database.repo import next_contract_number, save_contract
 from app.keyboards.main_menu import get_main_menu, get_menu_button
 from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
 from app.services.docx_service import render_shartnoma
@@ -19,22 +20,16 @@ router = Router()
 
 STEPS = {
     "uz": [
-        ("shartnoma_raqami", "1/4 — 🔢 Shartnoma raqamini kiriting.\nMasalan: 197/25"),
-        ("sana", "2/4 — 📅 Sanani kiriting.\nMasalan: 24.09.2026"),
-        ("firma_nomi", "3/4 — 🏢 Firma nomini kiriting."),
-        ("stir_raqami", "4/4 — 🔢 STIR (INN) raqamini kiriting."),
+        ("firma_nomi", "1/2 — 🏢 Firma nomini kiriting."),
+        ("stir_raqami", "2/2 — 🔢 STIR (INN) raqamini kiriting."),
     ],
     "ru": [
-        ("shartnoma_raqami", "1/4 — 🔢 Введите номер договора.\nНапример: 197/25"),
-        ("sana", "2/4 — 📅 Введите дату.\nНапример: 24.09.2026"),
-        ("firma_nomi", "3/4 — 🏢 Введите название фирмы."),
-        ("stir_raqami", "4/4 — 🔢 Введите ИНН."),
+        ("firma_nomi", "1/2 — 🏢 Введите название фирмы."),
+        ("stir_raqami", "2/2 — 🔢 Введите ИНН."),
     ],
 }
 
 STATES = {
-    "shartnoma_raqami": ShartnomaForm.shartnoma_raqami,
-    "sana": ShartnomaForm.sana,
     "firma_nomi": ShartnomaForm.firma_nomi,
     "stir_raqami": ShartnomaForm.stir_raqami,
 }
@@ -45,12 +40,20 @@ TEXTS = {
         "confirm": "📋 <b>Tekshiring:</b>",
         "creating": "⏳ Hujjat tayyorlanmoqda...",
         "menu": "Asosiy menyu:",
+        "number": "🔢 Raqam",
+        "date": "📅 Sana",
+        "firm": "🏢 Firma",
+        "inn": "🔢 INN",
     },
     "ru": {
         "title": "📄 <b>Создание договора</b>",
         "confirm": "📋 <b>Проверьте:</b>",
         "creating": "⏳ Документ готовится...",
         "menu": "Главное меню:",
+        "number": "🔢 Номер",
+        "date": "📅 Дата",
+        "firm": "🏢 Фирма",
+        "inn": "🔢 ИНН",
     },
 }
 
@@ -84,13 +87,15 @@ async def _handle(message: Message, state: FSMContext):
 async def _show_confirm(message: Message, state: FSMContext, lang: str):
     data = await state.get_data()
     a = data.get("answers", {})
+    number = data.get("contract_number", "")
+    date = data.get("contract_date", "")
     t = TEXTS.get(lang, TEXTS["uz"])
     text = (
         f"{t['confirm']}\n\n"
-        f"🔢 Raqam: {a.get('shartnoma_raqami', '—')}\n"
-        f"📅 Sana: {a.get('sana', '—')}\n"
-        f"🏢 Firma: {a.get('firma_nomi', '—')}\n"
-        f"🔢 INN: {a.get('stir_raqami', '—')}"
+        f"{t['number']}: {number}\n"
+        f"{t['date']}: {date}\n"
+        f"{t['firm']}: {a.get('firma_nomi', '—')}\n"
+        f"{t['inn']}: {a.get('stir_raqami', '—')}"
     )
     await state.set_state(ShartnomaForm.confirm)
     await message.answer(text, reply_markup=get_confirm_keyboard("sh"))
@@ -104,7 +109,7 @@ async def start_shartnoma_uz(message: Message, state: FSMContext):
         TEXTS["uz"]["title"],
         reply_markup=get_menu_button("uz"),
     )
-    await _ask(message, state, 0, "uz")
+    await _prepare_and_ask(message, state, "uz")
 
 
 @router.message(F.text == "📄 Создать договор")
@@ -115,7 +120,19 @@ async def start_shartnoma_ru(message: Message, state: FSMContext):
         TEXTS["ru"]["title"],
         reply_markup=get_menu_button("ru"),
     )
-    await _ask(message, state, 0, "ru")
+    await _prepare_and_ask(message, state, "ru")
+
+
+async def _prepare_and_ask(message: Message, state: FSMContext, lang: str):
+    async with async_session() as session:
+        number = await next_contract_number(session)
+    date = datetime.now().strftime("%d.%m.%Y")
+    await state.update_data(contract_number=number, contract_date=date)
+    if lang == "uz":
+        await message.answer(f"🔢 Raqam: <b>{number}</b>\n📅 Sana: <b>{date}</b>")
+    else:
+        await message.answer(f"🔢 Номер: <b>{number}</b>\n📅 Дата: <b>{date}</b>")
+    await _ask(message, state, 0, lang)
 
 
 @router.message(F.text == "🏠 Menu")
@@ -128,16 +145,6 @@ async def back_to_menu_uz(message: Message, state: FSMContext):
 async def back_to_menu_ru(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Главное меню:", reply_markup=get_main_menu("ru"))
-
-
-@router.message(ShartnomaForm.shartnoma_raqami)
-async def h_raqam(m: Message, state: FSMContext):
-    await _handle(m, state)
-
-
-@router.message(ShartnomaForm.sana)
-async def h_sana(m: Message, state: FSMContext):
-    await _handle(m, state)
 
 
 @router.message(ShartnomaForm.firma_nomi)
@@ -186,7 +193,7 @@ async def sh_restart(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(answers={}, step=0, lang=lang)
     await call.message.edit_reply_markup(reply_markup=None)
-    await _ask(call.message, state, 0, lang)
+    await _prepare_and_ask(call.message, state, lang)
     await call.answer()
 
 
@@ -195,13 +202,22 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
     a = data.get("answers", {})
+    number = data.get("contract_number", "")
+    date = data.get("contract_date", "")
     t = TEXTS.get(lang, TEXTS["uz"])
 
     await call.message.edit_text(t["creating"])
     await call.answer()
 
+    payload = {
+        "shartnoma_raqami": number,
+        "sana": date,
+        "firma_nomi": a.get("firma_nomi", ""),
+        "stir_raqami": a.get("stir_raqami", ""),
+    }
+
     try:
-        docx_path = render_shartnoma(a)
+        docx_path = render_shartnoma(payload)
     except Exception as e:
         logger.error(f"DOCX error: {e}")
         await call.message.answer(f"❌ Xato: {e}")
@@ -221,10 +237,10 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
         async with async_session() as session:
             await save_contract(
                 session,
-                inn=a.get("stir_raqami", ""),
-                firma=a.get("firma_nomi", ""),
-                number=a.get("shartnoma_raqami", ""),
-                date=a.get("sana", ""),
+                inn=payload["stir_raqami"],
+                firma=payload["firma_nomi"],
+                number=payload["shartnoma_raqami"],
+                date=payload["sana"],
                 user_id=call.from_user.id,
                 user_name=call.from_user.full_name,
                 pdf_data=pdf_bytes,
