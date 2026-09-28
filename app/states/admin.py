@@ -12,3 +12,7 @@ class AdminDrugForm(StatesGroup):
 
 class AdminContractForm(StatesGroup):
     search_inn = State()
+
+
+class AdminSettingsForm(StatesGroup):
+    edit_contract_number = State()
