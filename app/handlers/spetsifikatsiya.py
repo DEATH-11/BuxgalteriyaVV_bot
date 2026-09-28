@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from app.bot_instance import bot
 from app.config import settings
 from app.database.base import async_session
-from app.database.repo import get_all_drugs, get_drug, save_spek
+from app.database.repo import get_all_drugs, get_drug, get_user, save_spek
 from app.keyboards.main_menu import get_main_menu, get_menu_button
 from app.keyboards.spetsifikatsiya import (
     get_confirm_keyboard,
@@ -21,6 +21,16 @@ from app.states.spetsifikatsiya import SpetsifikatsiyaForm
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+DENIED_UZ = "⛔ Siz tasdiqlanmagansiz."
+DENIED_RU = "⛔ Вы не подтверждены."
+
+
+async def _check_approved(user_id: int) -> bool:
+    async with async_session() as session:
+        u = await get_user(session, user_id)
+    return bool(u and u.status == "approved")
 
 
 async def _notify_admins(text: str):
@@ -69,6 +79,9 @@ async def _show_edit(message: Message, state: FSMContext):
 
 @router.message(F.text == "📊 Spetsifikatsiya yaratish")
 async def start_spec_uz(message: Message, state: FSMContext):
+    if not await _check_approved(message.from_user.id):
+        await message.answer(DENIED_UZ)
+        return
     await state.clear()
     await state.update_data(selected={}, items=[], lang="uz")
     await message.answer(
@@ -80,6 +93,9 @@ async def start_spec_uz(message: Message, state: FSMContext):
 
 @router.message(F.text == "📊 Создать спецификацию")
 async def start_spec_ru(message: Message, state: FSMContext):
+    if not await _check_approved(message.from_user.id):
+        await message.answer(DENIED_RU)
+        return
     await state.clear()
     await state.update_data(selected={}, items=[], lang="ru")
     await message.answer(
@@ -103,6 +119,9 @@ async def back_to_menu_ru(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("spec:pick:"))
 async def pick_drug(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     drug_id = int(call.data.split(":")[2])
     data = await state.get_data()
     selected = data.get("selected", {})
@@ -131,6 +150,10 @@ async def pick_drug(call: CallbackQuery, state: FSMContext):
 
 @router.message(SpetsifikatsiyaForm.enter_qty)
 async def enter_qty(m: Message, state: FSMContext):
+    if not await _check_approved(m.from_user.id):
+        await m.answer(DENIED_UZ)
+        await state.clear()
+        return
     data = await state.get_data()
     drug_id = data.get("current_drug_id")
     try:
@@ -162,6 +185,9 @@ async def enter_qty(m: Message, state: FSMContext):
 
 @router.callback_query(F.data == "spec:edit")
 async def edit_selected(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     await call.message.edit_reply_markup(reply_markup=None)
     await _show_edit(call.message, state)
     await call.answer()
@@ -169,6 +195,9 @@ async def edit_selected(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "spec:add_more")
 async def add_more(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     await call.message.edit_reply_markup(reply_markup=None)
     await _show_drugs(call.message, state)
     await call.answer()
@@ -176,6 +205,9 @@ async def add_more(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("spec:del:"))
 async def del_drug(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     drug_id = int(call.data.split(":")[2])
     data = await state.get_data()
     selected = data.get("selected", {})
@@ -189,6 +221,9 @@ async def del_drug(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("spec:edit_qty:"))
 async def edit_qty_start(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     drug_id = int(call.data.split(":")[2])
     data = await state.get_data()
     selected = data.get("selected", {})
@@ -209,6 +244,9 @@ async def edit_qty_start(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "spec:done")
 async def spec_done(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     data = await state.get_data()
     selected = data.get("selected", {})
     if not selected:
@@ -252,6 +290,9 @@ async def spec_cancel(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "spec:restart")
 async def spec_restart(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
     await state.clear()
     await state.update_data(selected={}, items=[], lang="uz")
     await call.message.edit_reply_markup(reply_markup=None)
@@ -261,6 +302,11 @@ async def spec_restart(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "spec:submit")
 async def spec_submit(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        await state.clear()
+        return
+
     data = await state.get_data()
     items = data.get("items", [])
     total = data.get("total", 0)
@@ -297,7 +343,6 @@ async def spec_submit(call: CallbackQuery, state: FSMContext):
     file = FSInputFile(str(file_to_send))
     await bot.send_document(call.from_user.id, file)
 
-    # Admin ga xabar
     user = call.from_user
     username = f"@{user.username}" if user.username else "—"
     lines = [
