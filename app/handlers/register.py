@@ -8,7 +8,7 @@ from app.bot_instance import bot
 from app.config import settings
 from app.database.base import async_session
 from app.database.repo import create_user, get_user
-from app.keyboards.main_menu import get_main_menu, get_language_keyboard
+from app.keyboards.main_menu import get_main_menu
 from app.keyboards.register import (
     get_admin_approve_keyboard,
     get_register_confirm_keyboard,
@@ -31,6 +31,7 @@ TEXTS = {
         "menu": "Asosiy menyu:",
         "denied": "❌ Sizga ruxsat berilmagan.",
         "pending": "⏳ Arizangiz admin tasdiqlashini kutmoqda.",
+        "deleted": "🚫 Sizning hisobingiz o‘chirilgan.",
     },
     "ru": {
         "ask_first": "1/4 — 👤 Введите имя:",
@@ -42,6 +43,7 @@ TEXTS = {
         "menu": "Главное меню:",
         "denied": "❌ Вам отказано в доступе.",
         "pending": "⏳ Ваша заявка ожидает подтверждения администратора.",
+        "deleted": "🚫 Ваш аккаунт удалён.",
     },
 }
 
@@ -94,9 +96,14 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
             await call.message.edit_text(TEXTS[lang]["pending"])
         except Exception:
             pass
-    else:
+    elif user.status == "rejected":
         try:
             await call.message.edit_text(TEXTS[lang]["denied"])
+        except Exception:
+            pass
+    else:
+        try:
+            await call.message.edit_text(TEXTS[lang]["deleted"])
         except Exception:
             pass
     await call.answer()
