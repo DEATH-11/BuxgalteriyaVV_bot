@@ -8,7 +8,7 @@ from app.bot_instance import bot
 from app.config import settings
 from app.database.base import async_session
 from app.database.repo import create_user, get_user
-from app.keyboards.main_menu import get_language_keyboard
+from app.keyboards.main_menu import get_main_menu, get_language_keyboard
 from app.keyboards.register import (
     get_admin_approve_keyboard,
     get_register_confirm_keyboard,
@@ -29,6 +29,8 @@ TEXTS = {
         "confirm": "📋 <b>Tekshiring:</b>\n\n👤 Ism: {f}\n👤 Familiya: {l}\n📞 Telefon: {p}\n📍 Viloyat: {r}\n\nYuborilsinmi?",
         "sent": "✅ Zayavkangiz yuborildi.\n\nAdmin tasdiqlashini kuting.",
         "menu": "Asosiy menyu:",
+        "denied": "❌ Sizga ruxsat berilmagan.",
+        "pending": "⏳ Zayavkangiz admin tasdiqlashini kutmoqda.",
     },
     "ru": {
         "ask_first": "1/4 — 👤 Введите имя:",
@@ -38,11 +40,13 @@ TEXTS = {
         "confirm": "📋 <b>Проверьте:</b>\n\n👤 Имя: {f}\n👤 Фамилия: {l}\n📞 Телефон: {p}\n📍 Область: {r}\n\nОтправить?",
         "sent": "✅ Ваша заявка отправлена.\n\nОжидайте подтверждения администратора.",
         "menu": "Главное меню:",
+        "denied": "❌ Вам отказано в доступе.",
+        "pending": "⏳ Ваша заявка ожидает подтверждения администратора.",
     },
 }
 
 
-async def _notify_admins_new_user(user, username, lang):
+async def _notify_admins_new_user(user, username):
     text = (
         "🆕 <b>YANGI FOYDALANUVCHI</b>\n\n"
         f"👤 Ism: {user.first_name}\n"
@@ -61,9 +65,12 @@ async def _notify_admins_new_user(user, username, lang):
             logger.error(f"Admin notify failed ({admin_id}): {e}")
 
 
+# ========== TIL TANLASH (register router) ==========
+
 @router.callback_query(F.data.startswith("lang:"))
 async def set_lang_register(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":")[1]
+
     async with async_session() as session:
         user = await get_user(session, call.from_user.id)
 
@@ -72,23 +79,33 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
         await state.clear()
         await state.update_data(lang=lang)
         await state.set_state(RegisterForm.first_name)
-        await call.message.edit_text(TEXTS[lang]["ask_first"])
+        try:
+            await call.message.edit_text(TEXTS[lang]["ask_first"])
+        except Exception:
+            await call.message.answer(TEXTS[lang]["ask_first"])
         await call.answer()
         return
 
-    # Eski user
     if user.status == "approved":
-        from app.keyboards.main_menu import get_main_menu
-        await call.message.edit_text(TEXTS[lang]["menu"])
+        try:
+            await call.message.edit_text(TEXTS[lang]["menu"])
+        except Exception:
+            pass
         await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu(lang))
     elif user.status == "pending":
-        await call.message.edit_text(TEXTS[lang]["sent"])
+        try:
+            await call.message.edit_text(TEXTS[lang]["pending"])
+        except Exception:
+            pass
     else:
-        await call.message.edit_text(
-            "❌ Sizga ruxsat berilmagan.\n\nQayta urinish uchun /start yozing."
-        )
+        try:
+            await call.message.edit_text(TEXTS[lang]["denied"])
+        except Exception:
+            pass
     await call.answer()
 
+
+# ========== RO‘YXATDAN O‘TISH ==========
 
 @router.message(RegisterForm.first_name)
 async def reg_first(m: Message, state: FSMContext):
@@ -117,45 +134,6 @@ async def reg_phone(m: Message, state: FSMContext):
     await m.answer(TEXTS[lang]["ask_region"], reply_markup=get_region_keyboard(lang))
 
 
-@router.callback_query(F.data.startswith("reg:"))
-async def reg_region(call: CallbackQuery, state: FSMContext):
-    value = call.data.split(":", 1)[1]
-    if value == "submit":
-        data = await state.get_data()
-        lang = data.get("lang", "uz")
-        f = data.get("first_name", "")
-        l = data.get("last_name", "")
-        p = data.get("phone", "")
-        r = data.get("region", "")
-
-        await call.message.edit_text(
-            TEXTS[lang]["confirm"].format(f=f, l=l, p=p, r=r),
-            reply_markup=get_register_confirm_keyboard(),
-        )
-        await call.answer()
-        return
-
-    if value == "cancel":
-        await state.clear()
-        await call.message.edit_text("❌ Bekor qilindi.")
-        await call.answer()
-        return
-
-    # Viloyat tanlandi
-    await state.update_data(region=value)
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    f = data.get("first_name", "")
-    l = data.get("last_name", "")
-    p = data.get("phone", "")
-
-    await call.message.edit_text(
-        TEXTS[lang]["confirm"].format(f=f, l=l, p=p, r=value),
-        reply_markup=get_register_confirm_keyboard(),
-    )
-    await call.answer()
-
-
 @router.callback_query(F.data == "reg:submit")
 async def reg_submit(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -165,27 +143,71 @@ async def reg_submit(call: CallbackQuery, state: FSMContext):
     p = data.get("phone", "")
     r = data.get("region", "")
 
+    if not r:
+        await call.answer("Avval viloyatni tanlang.", show_alert=True)
+        return
+
     async with async_session() as session:
-        user = await create_user(
-            session,
-            telegram_id=call.from_user.id,
-            username=call.from_user.username,
-            first_name=f,
-            last_name=l,
-            phone=p,
-            region=r,
-            language=lang,
-        )
+        existing = await get_user(session, call.from_user.id)
+        if existing is None:
+            user = await create_user(
+                session,
+                telegram_id=call.from_user.id,
+                username=call.from_user.username,
+                first_name=f,
+                last_name=l,
+                phone=p,
+                region=r,
+                language=lang,
+            )
+        else:
+            user = existing
 
     await state.clear()
-    await call.message.edit_text(TEXTS[lang]["sent"])
+    try:
+        await call.message.edit_text(TEXTS[lang]["sent"])
+    except Exception:
+        await call.message.answer(TEXTS[lang]["sent"])
     await call.answer("Yuborildi!")
 
-    await _notify_admins_new_user(user, call.from_user.username, lang)
+    await _notify_admins_new_user(user, call.from_user.username)
 
 
 @router.callback_query(F.data == "reg:cancel")
 async def reg_cancel(call: CallbackQuery, state: FSMContext):
     await state.clear()
-    await call.message.edit_text("❌ Bekor qilindi.")
+    try:
+        await call.message.edit_text("❌ Bekor qilindi.")
+    except Exception:
+        await call.message.answer("❌ Bekor qilindi.")
+    await call.answer()
+
+
+# ========== VILOYAT TANLASH ==========
+
+@router.callback_query(F.data.startswith("reg:"))
+async def reg_region(call: CallbackQuery, state: FSMContext):
+    value = call.data.split(":", 1)[1]
+
+    if value in ("submit", "cancel"):
+        return
+
+    await state.update_data(region=value)
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
+    f = data.get("first_name", "")
+    l = data.get("last_name", "")
+    p = data.get("phone", "")
+
+    text = TEXTS[lang]["confirm"].format(f=f, l=l, p=p, r=value)
+    try:
+        await call.message.edit_text(
+            text,
+            reply_markup=get_register_confirm_keyboard(),
+        )
+    except Exception:
+        await call.message.answer(
+            text,
+            reply_markup=get_register_confirm_keyboard(),
+        )
     await call.answer()
