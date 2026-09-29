@@ -1,5 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.config import COMPANIES
+
 
 def get_admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -13,6 +15,8 @@ def get_admin_menu() -> InlineKeyboardMarkup:
     )
 
 
+# ========== USERS ==========
+
 def get_users_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -25,47 +29,81 @@ def get_users_menu() -> InlineKeyboardMarkup:
     )
 
 
-def get_users_status_keyboard(status: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:users")],
-        ]
-    )
+def get_users_company_keyboard(status: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="📋 Hammasi", callback_data=f"admin:uc:ALL:{status}")],
+    ]
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🏢 {name}",
+                callback_data=f"admin:uc:{key}:{status}",
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:users")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_user_view_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🏢 Kompaniyani o‘zgartirish", callback_data=f"admin:user:co:{user_id}")],
             [InlineKeyboardButton(text="🗑 O‘chirish", callback_data=f"admin:user:del:{user_id}")],
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:users")],
         ]
     )
 
 
-def get_drugs_menu() -> InlineKeyboardMarkup:
+def get_user_company_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    buttons = []
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🏢 {name}",
+                callback_data=f"admin:user:setco:{user_id}:{key}",
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"admin:user:view:{user_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ========== DRUGS ==========
+
+def get_drugs_company_keyboard() -> InlineKeyboardMarkup:
+    buttons = []
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🏢 {name}",
+                callback_data=f"admin:drugs:co:{key}",
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_drugs_menu(company: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Dori qo‘shish", callback_data="admin:drug:add")],
-            [InlineKeyboardButton(text="📋 Ro‘yxat", callback_data="admin:drug:list")],
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")],
+            [InlineKeyboardButton(text="➕ Dori qo‘shish", callback_data=f"admin:drug:add:{company}")],
+            [InlineKeyboardButton(text="📋 Ro‘yxat", callback_data=f"admin:drug:list:{company}")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:drugs")],
         ]
     )
 
 
-def get_drugs_list_keyboard(drugs: list) -> InlineKeyboardMarkup:
+def get_drugs_list_keyboard(drugs: list, company: str) -> InlineKeyboardMarkup:
     buttons = []
     for d in drugs:
         price = f"{int(d.price):,}".replace(",", " ")
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"✏️ {d.name} — {price}",
-                    callback_data=f"admin:drug:edit:{d.id}",
-                ),
-                InlineKeyboardButton(text="🗑", callback_data=f"admin:drug:del:{d.id}"),
-            ]
-        )
-    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:drugs")])
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✏️ {d.name} — {price}",
+                callback_data=f"admin:drug:edit:{d.id}",
+            ),
+            InlineKeyboardButton(text="🗑", callback_data=f"admin:drug:del:{d.id}:{company}"),
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"admin:drugs:co:{company}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -75,11 +113,13 @@ def get_drug_edit_keyboard(drug_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Nomi", callback_data=f"admin:drug:en:{drug_id}")],
             [InlineKeyboardButton(text="📏 Birligi", callback_data=f"admin:drug:eu:{drug_id}")],
             [InlineKeyboardButton(text="💰 Narxi", callback_data=f"admin:drug:ep:{drug_id}")],
-            [InlineKeyboardButton(text="🗑 O‘chirish", callback_data=f"admin:drug:del:{drug_id}")],
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:drug:list")],
+            [InlineKeyboardButton(text="🗑 O‘chirish", callback_data=f"admin:drug:del2:{drug_id}")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:drugs")],
         ]
     )
 
+
+# ========== CONTRACTS ==========
 
 def get_contracts_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -112,21 +152,41 @@ def get_contract_view_keyboard(contract_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def get_settings_menu(contract_prefix: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"🔢 Shartnoma raqami: {contract_prefix}",
-                callback_data="admin:settings:contract",
-            )],
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")],
-        ]
-    )
+# ========== SETTINGS ==========
 
+def get_settings_menu(prefixes: dict, speks: dict) -> InlineKeyboardMarkup:
+    buttons = []
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🔢 {name} shartnoma: {prefixes.get(key, '—')}",
+                callback_data=f"admin:set:contract:{key}",
+            )
+        ])
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"📊 {name} spek raqami: {speks.get(key, 0)}",
+                callback_data=f"admin:set:spek:{key}",
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ========== COMMON ==========
 
 def get_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin:back")],
+        ]
+    )
+
+
+def get_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")],
         ]
     )
