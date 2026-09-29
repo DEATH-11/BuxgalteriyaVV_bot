@@ -3,7 +3,14 @@ import json
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Contract, Drug, Setting, Spek, SpekCounter, User
+from app.database.models import (
+    Contract,
+    Drug,
+    Setting,
+    Spek,
+    SpekCounter,
+    User,
+)
 
 
 # ========== SETTINGS ==========
@@ -47,6 +54,7 @@ async def create_user(
     phone: str,
     region: str,
     language: str,
+    company: str,
 ) -> User:
     user = User(
         telegram_id=telegram_id,
@@ -56,6 +64,7 @@ async def create_user(
         phone=phone,
         region=region,
         language=language,
+        company=company,
         status="pending",
     )
     session.add(user)
@@ -64,12 +73,12 @@ async def create_user(
     return user
 
 
-async def update_user_language(
-    session: AsyncSession, telegram_id: int, language: str
+async def set_user_company(
+    session: AsyncSession, telegram_id: int, company: str
 ) -> None:
     user = await get_user(session, telegram_id)
     if user:
-        user.language = language
+        user.company = company
         await session.commit()
 
 
@@ -92,6 +101,20 @@ async def get_all_users(
     return list(result.scalars().all())
 
 
+async def get_users_by_company(
+    session: AsyncSession, company: str, status: str | None = None
+) -> list[User]:
+    stmt = (
+        select(User)
+        .where(User.company == company)
+        .order_by(User.created_at.desc())
+    )
+    if status:
+        stmt = stmt.where(User.status == status)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def delete_user(session: AsyncSession, telegram_id: int) -> None:
     user = await get_user(session, telegram_id)
     if user:
@@ -108,8 +131,12 @@ async def count_users_by_status(session: AsyncSession) -> dict:
 
 # ========== DRUGS ==========
 
-async def get_all_drugs(session: AsyncSession) -> list[Drug]:
-    result = await session.execute(select(Drug).order_by(Drug.name))
+async def get_drugs_by_company(
+    session: AsyncSession, company: str
+) -> list[Drug]:
+    result = await session.execute(
+        select(Drug).where(Drug.company == company).order_by(Drug.name)
+    )
     return list(result.scalars().all())
 
 
@@ -118,8 +145,10 @@ async def get_drug(session: AsyncSession, drug_id: int) -> Drug | None:
     return result.scalar_one_or_none()
 
 
-async def add_drug(session: AsyncSession, name: str, unit: str, price: float) -> Drug:
-    drug = Drug(name=name, unit=unit, price=price)
+async def add_drug(
+    session: AsyncSession, company: str, name: str, unit: str, price: float
+) -> Drug:
+    drug = Drug(company=company, name=name, unit=unit, price=price)
     session.add(drug)
     await session.commit()
     await session.refresh(drug)
@@ -146,11 +175,13 @@ async def delete_drug(session: AsyncSession, drug_id: int) -> None:
 
 # ========== SPEKS ==========
 
-async def next_spek_number(session: AsyncSession) -> int:
-    result = await session.execute(select(SpekCounter))
+async def next_spek_number(session: AsyncSession, company: str) -> int:
+    result = await session.execute(
+        select(SpekCounter).where(SpekCounter.company == company)
+    )
     counter = result.scalar_one_or_none()
     if counter is None:
-        counter = SpekCounter(last_number=0)
+        counter = SpekCounter(company=company, last_number=0)
         session.add(counter)
         await session.commit()
         await session.refresh(counter)
@@ -160,15 +191,40 @@ async def next_spek_number(session: AsyncSession) -> int:
     return counter.last_number
 
 
+async def get_spek_counter(session: AsyncSession, company: str) -> int:
+    result = await session.execute(
+        select(SpekCounter).where(SpekCounter.company == company)
+    )
+    counter = result.scalar_one_or_none()
+    return counter.last_number if counter else 0
+
+
+async def set_spek_counter(
+    session: AsyncSession, company: str, value: int
+) -> None:
+    result = await session.execute(
+        select(SpekCounter).where(SpekCounter.company == company)
+    )
+    counter = result.scalar_one_or_none()
+    if counter is None:
+        counter = SpekCounter(company=company, last_number=value)
+        session.add(counter)
+    else:
+        counter.last_number = value
+    await session.commit()
+
+
 async def save_spek(
     session: AsyncSession,
+    company: str,
     user_id: int,
     user_name: str,
     items: list,
     total: float,
 ) -> Spek:
-    number = await next_spek_number(session)
+    number = await next_spek_number(session, company)
     spek = Spek(
+        company=company,
         number=number,
         user_id=user_id,
         user_name=user_name,
@@ -181,25 +237,35 @@ async def save_spek(
     return spek
 
 
-async def get_all_speks(session: AsyncSession, limit: int = 100) -> list[Spek]:
-    result = await session.execute(
-        select(Spek).order_by(Spek.created_at.desc()).limit(limit)
-    )
+async def get_all_speks(
+    session: AsyncSession, company: str | None = None, limit: int = 100
+) -> list[Spek]:
+    stmt = select(Spek).order_by(Spek.created_at.desc()).limit(limit)
+    if company:
+        stmt = stmt.where(Spek.company == company)
+    result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def get_spek(session: AsyncSession, spek_id: int) -> Spek | None:
+    result = await session.execute(select(Spek).where(Spek.id == spek_id))
+    return result.scalar_one_or_none()
 
 
 # ========== CONTRACTS ==========
 
-async def get_contract_prefix(session: AsyncSession) -> str:
-    return await get_setting(session, "contract_prefix", "1/26")
+async def get_contract_prefix(session: AsyncSession, company: str) -> str:
+    return await get_setting(session, f"contract_prefix_{company}", "1/26")
 
 
-async def set_contract_prefix(session: AsyncSession, value: str) -> None:
-    await set_setting(session, "contract_prefix", value)
+async def set_contract_prefix(
+    session: AsyncSession, company: str, value: str
+) -> None:
+    await set_setting(session, f"contract_prefix_{company}", value)
 
 
-async def next_contract_number(session: AsyncSession) -> str:
-    current = await get_setting(session, "contract_prefix", "1/26")
+async def next_contract_number(session: AsyncSession, company: str) -> str:
+    current = await get_setting(session, f"contract_prefix_{company}", "1/26")
     try:
         if "/" in current:
             num_part, suffix = current.split("/", 1)
@@ -210,12 +276,13 @@ async def next_contract_number(session: AsyncSession) -> str:
     except ValueError:
         new_value = current
 
-    await set_setting(session, "contract_prefix", new_value)
+    await set_setting(session, f"contract_prefix_{company}", new_value)
     return new_value
 
 
 async def save_contract(
     session: AsyncSession,
+    company: str,
     inn: str,
     firma: str,
     number: str,
@@ -226,6 +293,7 @@ async def save_contract(
     pdf_name: str,
 ) -> Contract:
     contract = Contract(
+        company=company,
         inn=inn,
         firma=firma,
         number=number,
@@ -241,12 +309,17 @@ async def save_contract(
     return contract
 
 
-async def get_contracts_by_inn(session: AsyncSession, inn: str) -> list[Contract]:
-    result = await session.execute(
+async def get_contracts_by_inn(
+    session: AsyncSession, inn: str, company: str | None = None
+) -> list[Contract]:
+    stmt = (
         select(Contract)
         .where(Contract.inn == inn)
         .order_by(Contract.created_at.desc())
     )
+    if company:
+        stmt = stmt.where(Contract.company == company)
+    result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
