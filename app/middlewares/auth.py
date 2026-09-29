@@ -11,6 +11,7 @@ from app.states.register import RegisterForm
 
 
 REGISTER_STATES = {
+    RegisterForm.company.state,
     RegisterForm.first_name.state,
     RegisterForm.last_name.state,
     RegisterForm.phone.state,
@@ -28,35 +29,32 @@ class AuthMiddleware(BaseMiddleware):
     ) -> Any:
         user_id = event.from_user.id
 
-        # Admin — har doim ruxsat
         if user_id in settings.admin_list:
             return await handler(event, data)
 
-        # Foydalanuvchini bazadan tekshiramiz
         async with async_session() as session:
             user = await get_user(session, user_id)
 
-        # Tasdiqlangan bo‘lsa — davom etamiz
         if user and user.status == "approved":
             return await handler(event, data)
 
-        # Ro‘yxatdan o‘tish state’ida — ruxsat beramiz
         state: FSMContext | None = data.get("state")
         if state is not None:
             current = await state.get_state()
             if current in REGISTER_STATES:
                 return await handler(event, data)
 
-        # /start, /menu va lang: — ruxsat
         if isinstance(event, Message):
             text = event.text or ""
             if text.startswith("/start") or text == "/menu":
                 return await handler(event, data)
         elif isinstance(event, CallbackQuery):
-            if event.data and event.data.startswith("lang:"):
+            if event.data and (
+                event.data.startswith("lang:")
+                or event.data.startswith("company:")
+            ):
                 return await handler(event, data)
 
-        # Qolgan hamma narsani bloklaymiz
         if isinstance(event, Message):
             try:
                 await event.answer(
