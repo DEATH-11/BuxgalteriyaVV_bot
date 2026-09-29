@@ -6,12 +6,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot_instance import bot
-from app.config import settings
+from app.config import COMPANIES, settings
 from app.database.base import async_session
 from app.database.repo import create_user, get_user
 from app.keyboards.main_menu import get_main_menu
 from app.keyboards.register import (
     get_admin_approve_keyboard,
+    get_company_keyboard,
     get_register_confirm_keyboard,
     get_region_keyboard,
 )
@@ -23,11 +24,12 @@ router = Router()
 
 TEXTS = {
     "uz": {
-        "ask_first": "1/4 — 👤 Ismingizni kiriting:",
-        "ask_last": "2/4 — 👤 Familiyangizni kiriting:",
-        "ask_phone": "3/4 — 📞 Telefon raqamingizni kiriting.\nMasalan: +998 90 123 45 67",
-        "ask_region": "4/4 — 📍 Viloyatingizni tanlang:",
-        "confirm": "📋 <b>Tekshiring:</b>\n\n👤 Ism: {f}\n👤 Familiya: {l}\n📞 Telefon: {p}\n📍 Viloyat: {r}\n\nYuborilsinmi?",
+        "ask_company": "1/5 — 🏢 Qaysi kompaniya uchun ishlaysiz?",
+        "ask_first": "2/5 — 👤 Ismingizni kiriting:",
+        "ask_last": "3/5 — 👤 Familiyangizni kiriting:",
+        "ask_phone": "4/5 — 📞 Telefon raqamingizni kiriting.\nMasalan: +998 90 123 45 67",
+        "ask_region": "5/5 — 📍 Viloyatingizni tanlang:",
+        "confirm": "📋 <b>Tekshiring:</b>\n\n🏢 Kompaniya: {c}\n👤 Ism: {f}\n👤 Familiya: {l}\n📞 Telefon: {p}\n📍 Viloyat: {r}\n\nYuborilsinmi?",
         "sent": "✅ Arizangiz yuborildi.\n\nAdmin tasdiqlashini kuting.",
         "menu": "Asosiy menyu:",
         "denied": "❌ Sizga ruxsat berilmagan.",
@@ -37,11 +39,12 @@ TEXTS = {
         "err_phone": "❌ Faqat raqamlar kiriting.\nMasalan: +998 90 123 45 67",
     },
     "ru": {
-        "ask_first": "1/4 — 👤 Введите имя:",
-        "ask_last": "2/4 — 👤 Введите фамилию:",
-        "ask_phone": "3/4 — 📞 Введите номер телефона.\nНапример: +998 90 123 45 67",
-        "ask_region": "4/4 — 📍 Выберите область:",
-        "confirm": "📋 <b>Проверьте:</b>\n\n👤 Имя: {f}\n👤 Фамилия: {l}\n📞 Телефон: {p}\n📍 Область: {r}\n\nОтправить?",
+        "ask_company": "1/5 — 🏢 Для какой компании вы работаете?",
+        "ask_first": "2/5 — 👤 Введите имя:",
+        "ask_last": "3/5 — 👤 Введите фамилию:",
+        "ask_phone": "4/5 — 📞 Введите номер телефона.\nНапример: +998 90 123 45 67",
+        "ask_region": "5/5 — 📍 Выберите область:",
+        "confirm": "📋 <b>Проверьте:</b>\n\n🏢 Компания: {c}\n👤 Имя: {f}\n👤 Фамилия: {l}\n📞 Телефон: {p}\n📍 Область: {r}\n\nОтправить?",
         "sent": "✅ Ваша заявка отправлена.\n\nОжидайте подтверждения администратора.",
         "menu": "Главное меню:",
         "denied": "❌ Вам отказано в доступе.",
@@ -65,14 +68,20 @@ def _valid_phone(text: str) -> bool:
     return bool(PHONE_RE.match(text.strip()))
 
 
+def _company_name(key: str) -> str:
+    return COMPANIES.get(key, key)
+
+
 async def _notify_admins_new_user(user, username):
     if username:
         username_line = f"🔗 Username: <a href=\"https://t.me/{username}\">@{username}</a>"
     else:
         username_line = "🔗 Username: —"
 
+    company_label = _company_name(user.company)
     text = (
         "🆕 <b>YANGI ARIZA</b>\n\n"
+        f"🏢 Kompaniya: {company_label}\n"
         f"👤 Ism: {user.first_name}\n"
         f"👤 Familiya: {user.last_name}\n"
         f"📞 Telefon: {user.phone}\n"
@@ -101,11 +110,17 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
     if user is None:
         await state.clear()
         await state.update_data(lang=lang)
-        await state.set_state(RegisterForm.first_name)
+        await state.set_state(RegisterForm.company)
         try:
-            await call.message.edit_text(TEXTS[lang]["ask_first"])
+            await call.message.edit_text(
+                TEXTS[lang]["ask_company"],
+                reply_markup=get_company_keyboard(lang),
+            )
         except Exception:
-            await call.message.answer(TEXTS[lang]["ask_first"])
+            await call.message.answer(
+                TEXTS[lang]["ask_company"],
+                reply_markup=get_company_keyboard(lang),
+            )
         await call.answer()
         return
 
@@ -130,6 +145,23 @@ async def set_lang_register(call: CallbackQuery, state: FSMContext):
             await call.message.edit_text(TEXTS[lang]["deleted"])
         except Exception:
             pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("company:"))
+async def reg_company(call: CallbackQuery, state: FSMContext):
+    key = call.data.split(":", 1)[1]
+    if key not in COMPANIES:
+        await call.answer("Noto‘g‘ri kompaniya.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
+    await state.update_data(company=key)
+    await state.set_state(RegisterForm.first_name)
+    try:
+        await call.message.edit_text(TEXTS[lang]["ask_first"])
+    except Exception:
+        await call.message.answer(TEXTS[lang]["ask_first"])
     await call.answer()
 
 
@@ -180,7 +212,11 @@ async def reg_submit(call: CallbackQuery, state: FSMContext):
     l = data.get("last_name", "")
     p = data.get("phone", "")
     r = data.get("region", "")
+    company = data.get("company", "")
 
+    if not company:
+        await call.answer("Avval kompaniyani tanlang.", show_alert=True)
+        return
     if not r:
         await call.answer("Avval viloyatni tanlang.", show_alert=True)
         return
@@ -197,6 +233,7 @@ async def reg_submit(call: CallbackQuery, state: FSMContext):
                 phone=p,
                 region=r,
                 language=lang,
+                company=company,
             )
         else:
             user = existing
@@ -234,8 +271,11 @@ async def reg_region(call: CallbackQuery, state: FSMContext):
     f = data.get("first_name", "")
     l = data.get("last_name", "")
     p = data.get("phone", "")
+    company = data.get("company", "")
 
-    text = TEXTS[lang]["confirm"].format(f=f, l=l, p=p, r=value)
+    text = TEXTS[lang]["confirm"].format(
+        c=_company_name(company), f=f, l=l, p=p, r=value
+    )
     try:
         await call.message.edit_text(
             text,
