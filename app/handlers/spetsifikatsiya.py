@@ -37,14 +37,20 @@ TEXTS = {
         "title": "📊 <b>Spetsifikatsiya yaratish</b>",
         "ask_company": "1/2 — 🏢 Qaysi kompaniya uchun?",
         "pick_drug": "💊 <b>Dori tanlang:</b>",
-        "empty_drugs": "❌ Bu kompaniya uchun dorilar ro‘yxati bo‘sh.",
+        "empty_drugs": (
+            "❌ <b>Bu kompaniya uchun dorilar ro‘yxati bo‘sh.</b>\n\n"
+            "Iltimos, administrator bilan bog‘laning."
+        ),
         "menu": "Asosiy menyu:",
     },
     "ru": {
         "title": "📊 <b>Создание спецификации</b>",
         "ask_company": "1/2 — 🏢 Для какой компании?",
         "pick_drug": "💊 <b>Выберите товар:</b>",
-        "empty_drugs": "❌ Для этой компании список товаров пуст.",
+        "empty_drugs": (
+            "❌ <b>Для этой компании список товаров пуст.</b>\n\n"
+            "Пожалуйста, свяжитесь с администратором."
+        ),
         "menu": "Главное меню:",
     },
 }
@@ -75,21 +81,30 @@ def _fmt(num) -> str:
         return str(num)
 
 
-async def _show_drugs(message: Message, state: FSMContext):
+async def _show_drugs(message: Message, state: FSMContext) -> bool:
+    """Dorilar ro‘yxatini ko‘rsatadi. Agar bo‘sh bo‘lsa — False qaytaradi."""
     data = await state.get_data()
     selected = data.get("selected", {})
     company = data.get("company", "")
     lang = data.get("lang", "uz")
+
     async with async_session() as session:
         drugs = await get_drugs_by_company(session, company)
+
     if not drugs:
-        await message.answer(TEXTS[lang]["empty_drugs"])
-        return
+        await state.clear()
+        await message.answer(
+            TEXTS[lang]["empty_drugs"],
+            reply_markup=get_main_menu(lang),
+        )
+        return False
+
     await state.set_state(SpetsifikatsiyaForm.pick_drug)
     await message.answer(
         TEXTS[lang]["pick_drug"],
         reply_markup=get_drugs_keyboard(drugs, selected),
     )
+    return True
 
 
 async def _show_edit(message: Message, state: FSMContext):
@@ -146,7 +161,10 @@ async def sp_company(call: CallbackQuery, state: FSMContext):
         await call.answer("Noto‘g‘ri kompaniya.", show_alert=True)
         return
     await state.update_data(company=key, selected={}, items=[])
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await _show_drugs(call.message, state)
     await call.answer()
 
@@ -185,12 +203,20 @@ async def pick_drug(call: CallbackQuery, state: FSMContext):
     await state.update_data(current_drug_id=drug_id)
     await state.set_state(SpetsifikatsiyaForm.enter_qty)
     price_str = _fmt(drug.price)
-    await call.message.edit_text(
-        f"💊 <b>{drug.name}</b>\n"
-        f"💰 Narxi: {price_str}\n\n"
-        "Nechta olasiz?",
-        reply_markup=get_qty_keyboard(),
-    )
+    try:
+        await call.message.edit_text(
+            f"💊 <b>{drug.name}</b>\n"
+            f"💰 Narxi: {price_str}\n\n"
+            "Nechta olasiz?",
+            reply_markup=get_qty_keyboard(),
+        )
+    except Exception:
+        await call.message.answer(
+            f"💊 <b>{drug.name}</b>\n"
+            f"💰 Narxi: {price_str}\n\n"
+            "Nechta olasiz?",
+            reply_markup=get_qty_keyboard(),
+        )
     await call.answer()
 
 
@@ -234,7 +260,10 @@ async def edit_selected(call: CallbackQuery, state: FSMContext):
     if not await _check_approved(call.from_user.id):
         await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
         return
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await _show_edit(call.message, state)
     await call.answer()
 
@@ -244,7 +273,10 @@ async def add_more(call: CallbackQuery, state: FSMContext):
     if not await _check_approved(call.from_user.id):
         await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
         return
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await _show_drugs(call.message, state)
     await call.answer()
 
@@ -260,7 +292,10 @@ async def del_drug(call: CallbackQuery, state: FSMContext):
     if drug_id in selected:
         del selected[drug_id]
     await state.update_data(selected=selected)
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await _show_edit(call.message, state)
     await call.answer("🗑 O‘chirildi")
 
@@ -279,12 +314,20 @@ async def edit_qty_start(call: CallbackQuery, state: FSMContext):
         return
     await state.update_data(current_drug_id=drug_id)
     await state.set_state(SpetsifikatsiyaForm.enter_qty)
-    await call.message.edit_text(
-        f"✏️ <b>{item['name']}</b>\n"
-        f"Hozirgi miqdor: {item['qty']}\n\n"
-        "Yangi miqdorni kiriting:",
-        reply_markup=get_qty_keyboard(),
-    )
+    try:
+        await call.message.edit_text(
+            f"✏️ <b>{item['name']}</b>\n"
+            f"Hozirgi miqdor: {item['qty']}\n\n"
+            "Yangi miqdorni kiriting:",
+            reply_markup=get_qty_keyboard(),
+        )
+    except Exception:
+        await call.message.answer(
+            f"✏️ <b>{item['name']}</b>\n"
+            f"Hozirgi miqdor: {item['qty']}\n\n"
+            "Yangi miqdorni kiriting:",
+            reply_markup=get_qty_keyboard(),
+        )
     await call.answer()
 
 
@@ -320,7 +363,10 @@ async def spec_done(call: CallbackQuery, state: FSMContext):
     lines.append(f"\n💰 <b>Jami:</b> {_fmt(total)}")
 
     await state.set_state(SpetsifikatsiyaForm.confirm)
-    await call.message.edit_text("\n".join(lines), reply_markup=get_confirm_keyboard())
+    try:
+        await call.message.edit_text("\n".join(lines), reply_markup=get_confirm_keyboard())
+    except Exception:
+        await call.message.answer("\n".join(lines), reply_markup=get_confirm_keyboard())
     await call.answer()
 
 
@@ -329,7 +375,10 @@ async def spec_cancel(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
     await state.clear()
-    await call.message.edit_text("❌ Bekor qilindi.")
+    try:
+        await call.message.edit_text("❌ Bekor qilindi.")
+    except Exception:
+        await call.message.answer("❌ Bekor qilindi.")
     await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu(lang))
     await call.answer()
 
@@ -343,7 +392,10 @@ async def spec_restart(call: CallbackQuery, state: FSMContext):
     lang = data.get("lang", "uz")
     await state.clear()
     await state.update_data(selected={}, items=[], lang=lang)
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await call.message.answer(
         TEXTS[lang]["ask_company"],
         reply_markup=get_company_keyboard("sp"),
@@ -381,7 +433,10 @@ async def spec_submit(call: CallbackQuery, state: FSMContext):
         "jami_summa": total,
     }
 
-    await call.message.edit_text("⏳ Hujjat tayyorlanmoqda...")
+    try:
+        await call.message.edit_text("⏳ Hujjat tayyorlanmoqda...")
+    except Exception:
+        pass
     await call.answer()
 
     try:
