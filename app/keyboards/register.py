@@ -1,5 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.config import COMPANIES
+
 
 REGIONS = {
     "uz": [
@@ -35,6 +37,18 @@ REGIONS = {
         "Сурхандарья",
     ],
 }
+
+
+def get_company_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+    buttons = []
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🏢 {name}",
+                callback_data=f"company:{key}",
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_region_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
