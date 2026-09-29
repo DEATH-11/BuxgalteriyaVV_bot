@@ -15,7 +15,6 @@ def _safe(name: str) -> str:
 
 
 def _fmt_int(num) -> str:
-    """10.0 -> '10', 10.5 -> '10.5', 5124000 -> '5 124 000'"""
     try:
         f = float(num)
         if f.is_integer():
@@ -26,19 +25,23 @@ def _fmt_int(num) -> str:
         return str(num)
 
 
-def render_shartnoma(data: dict) -> Path:
-    template_path = TEMPLATES_DIR / "shartnoma.docx"
+def _template_path(company: str, filename: str) -> Path:
+    return TEMPLATES_DIR / company / filename
+
+
+def render_shartnoma(company: str, data: dict) -> Path:
+    template_path = _template_path(company, "shartnoma.docx")
     doc = DocxTemplate(str(template_path))
     doc.render(data)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"shartnoma_{_safe(data.get('shartnoma_raqami'))}_{ts}.docx"
+    filename = f"shartnoma_{company}_{_safe(data.get('shartnoma_raqami'))}_{ts}.docx"
     output_path = OUTPUT_DIR / filename
     doc.save(str(output_path))
     return output_path
 
 
-def render_spetsifikatsiya(data: dict) -> Path:
-    template_path = TEMPLATES_DIR / "spetsifikatsiya.docx"
+def render_spetsifikatsiya(company: str, data: dict) -> Path:
+    template_path = _template_path(company, "spetsifikatsiya.docx")
     doc = DocxTemplate(str(template_path))
 
     items = data.get("items", [])
@@ -51,7 +54,7 @@ def render_spetsifikatsiya(data: dict) -> Path:
     doc.render(context)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"spetsifikatsiya_{_safe(data.get('spek_raqami'))}_{ts}.docx"
+    filename = f"spetsifikatsiya_{company}_{_safe(data.get('spek_raqami'))}_{ts}.docx"
     output_path = OUTPUT_DIR / filename
     doc.save(str(output_path))
 
@@ -63,7 +66,6 @@ def render_spetsifikatsiya(data: dict) -> Path:
 def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
     doc = Document(docx_path)
 
-    # "@@TABLE@@" paragrafini topamiz
     target_paragraph = None
     for para in doc.paragraphs:
         if "@@TABLE@@" in para.text:
@@ -73,7 +75,6 @@ def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
     if target_paragraph is None:
         target_paragraph = doc.add_paragraph()
 
-    # Jadval yaratamiz — hujjat oxiriga qo‘shiladi
     rows_count = 1 + len(items) + 1
     table = doc.add_table(rows=rows_count, cols=5)
     table.style = "Table Grid"
@@ -96,7 +97,7 @@ def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
     for idx, item in enumerate(items, start=1):
         row = table.rows[idx]
         row.cells[0].text = str(item.get("dori_nomi", ""))
-        row.cells[1].text = "упак"
+        row.cells[1].text = str(item.get("unit", "упак"))
         row.cells[2].text = _fmt_int(item.get("miqdori", 0))
         row.cells[3].text = _fmt_int(item.get("narxi", 0))
         row.cells[4].text = _fmt_int(item.get("umumiy_narxi", 0))
@@ -108,19 +109,14 @@ def _insert_table_in_place(docx_path: str, items: list, jami) -> None:
 
     total_row = table.rows[-1]
     total_row.cells[0].text = "ИТОГО"
-    total_cell = total_row.cells[4]
-    total_cell.text = _fmt_int(jami)
-
+    total_row.cells[4].text = _fmt_int(jami)
     for cell in total_row.cells:
         for para in cell.paragraphs:
             for run in para.runs:
                 run.bold = True
                 run.font.size = Pt(10)
 
-    # Jadvalni "@@TABLE@@" paragrafining OLDIGA joylashtiramiz
     target_paragraph._p.addprevious(table._tbl)
-
-    # Endi "@@TABLE@@" paragrafini butunlay o‘chirib tashlaymiz
     target_paragraph._p.getparent().remove(target_paragraph._p)
 
     doc.save(docx_path)
