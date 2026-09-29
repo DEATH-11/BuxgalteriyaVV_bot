@@ -663,4 +663,187 @@ async def contract_view(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         return
     contract_id = int(call.data.split(":")[3])
-    async with async
+    async with async_session() as session:
+        c = await get_contract(session, contract_id)
+    if not c:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    text = (
+        f"📄 <b>Shartnoma</b>\n\n"
+        f"🏢 Kompaniya: {_company_name(c.company)}\n"
+        f"🏢 Firma: {c.firma}\n"
+        f"🔢 INN: {c.inn}\n"
+        f"🔢 Raqam: {c.number}\n"
+        f"📅 Sana: {c.date}\n"
+        f"👤 Yuboruvchi: {c.user_name}\n"
+        f"📅 Yaratilgan: {_tashkent(c.created_at)}"
+    )
+    await call.message.edit_text(text, reply_markup=get_contract_view_keyboard(contract_id))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("admin:contract:pdf:"))
+async def contract_pdf(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    contract_id = int(call.data.split(":")[3])
+    async with async_session() as session:
+        c = await get_contract(session, contract_id)
+    if not c or not c.pdf_data:
+        await call.answer("PDF topilmadi", show_alert=True)
+        return
+    file = BufferedInputFile(c.pdf_data, filename=c.pdf_name or f"shartnoma_{c.number}.pdf")
+    await bot.send_document(call.from_user.id, file)
+    await call.answer("PDF yuborildi")
+
+
+# ========== SPEKS ==========
+
+@router.callback_query(F.data == "admin:speks")
+async def admin_speks(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("Ruxsat yo‘q", show_alert=True)
+        return
+    await state.clear()
+    buttons = []
+    for key, name in COMPANIES.items():
+        buttons.append([
+            InlineKeyboardButton(text=f"🏢 {name}", callback_data=f"admin:speks:co:{key}")
+        ])
+    buttons.append([InlineKeyboardButton(text="📋 Barchasi", callback_data="admin:speks:co:ALL")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")])
+    await call.message.edit_text(
+        "📊 <b>Qaysi kompaniya?</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("admin:speks:co:"))
+async def admin_speks_company(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    company = call.data.split(":")[3]
+    async with async_session() as session:
+        if company == "ALL":
+            speks = await get_all_speks(session, limit=100)
+        else:
+            speks = await get_all_speks(session, company=company, limit=100)
+
+    if not speks:
+        await call.message.edit_text(
+            "📊 Spetsifikatsiyalar yo‘q.",
+            reply_markup=get_admin_menu(),
+        )
+        await call.answer()
+        return
+
+    lines = ["📊 <b>Spetsifikatsiyalar:</b>\n"]
+    for s in speks:
+        total_str = f"{int(s.total):,}".replace(",", " ")
+        co = COMPANIES.get(s.company, s.company)
+        lines.append(f"№ {s.number} [{co}] — {s.user_name} — {total_str} so'm")
+    await call.message.edit_text("\n".join(lines), reply_markup=get_admin_menu())
+    await call.answer()
+
+
+# ========== SETTINGS ==========
+
+@router.callback_query(F.data == "admin:settings")
+async def admin_settings(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("Ruxsat yo‘q", show_alert=True)
+        return
+    await state.clear()
+    prefixes = {}
+    speks = {}
+    async with async_session() as session:
+        for key in COMPANIES:
+            prefixes[key] = await get_contract_prefix(session, key)
+            speks[key] = await get_spek_counter(session, key)
+    await call.message.edit_text(
+        "⚙️ <b>Sozlamalar</b>",
+        reply_markup=get_settings_menu(prefixes, speks),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("admin:set:contract:"))
+async def settings_contract_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    company = call.data.split(":")[3]
+    if company not in COMPANIES:
+        return
+    async with async_session() as session:
+        prefix = await get_contract_prefix(session, company)
+    await state.update_data(company=company)
+    await state.set_state(AdminSettingsForm.edit_contract_vivora)
+    await call.message.edit_text(
+        f"🔢 <b>{COMPANIES[company]} — shartnoma raqami</b>\n\n"
+        f"Oxirgi raqam: <b>{prefix}</b>\n\n"
+        f"Yangi raqamni kiriting (masalan: 190/26):",
+        reply_markup=get_cancel_keyboard(),
+    )
+    await call.answer()
+
+
+@router.message(AdminSettingsForm.edit_contract_vivora)
+async def settings_contract_save(m: Message, state: FSMContext):
+    if not is_admin(m.from_user.id):
+        return
+    value = (m.text or "").strip()
+    if not value:
+        await m.answer("❌ Bo‘sh bo‘lmasin.")
+        return
+    data = await state.get_data()
+    company = data.get("company", "")
+    async with async_session() as session:
+        await set_contract_prefix(session, company, value)
+    await state.clear()
+    await m.answer(
+        f"✅ {COMPANIES.get(company, company)} shartnoma raqami: <b>{value}</b>",
+        reply_markup=get_admin_menu(),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:set:spek:"))
+async def settings_spek_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    company = call.data.split(":")[3]
+    if company not in COMPANIES:
+        return
+    async with async_session() as session:
+        current = await get_spek_counter(session, company)
+    await state.update_data(company=company)
+    await state.set_state(AdminSettingsForm.edit_spek_vivora)
+    await call.message.edit_text(
+        f"📊 <b>{COMPANIES[company]} — spek raqami</b>\n\n"
+        f"Oxirgi raqam: <b>{current}</b>\n\n"
+        f"Yangi raqamni kiriting (masalan: 50):",
+        reply_markup=get_cancel_keyboard(),
+    )
+    await call.answer()
+
+
+@router.message(AdminSettingsForm.edit_spek_vivora)
+async def settings_spek_save(m: Message, state: FSMContext):
+    if not is_admin(m.from_user.id):
+        return
+    try:
+        value = int((m.text or "").strip())
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        await m.answer("❌ Musbat butun raqam kiriting.")
+        return
+    data = await state.get_data()
+    company = data.get("company", "")
+    async with async_session() as session:
+        await set_spek_counter(session, company, value)
+    await state.clear()
+    await m.answer(
+        f"✅ {COMPANIES.get(company, company)} spek raqami: <b>{value}</b>",
+        reply_markup=get_admin_menu(),
+    )
