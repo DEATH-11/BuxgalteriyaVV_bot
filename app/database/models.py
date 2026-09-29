@@ -17,6 +17,7 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String(32), default="")
     region: Mapped[str] = mapped_column(String(64), default="")
     language: Mapped[str] = mapped_column(String(2), default="uz")
+    company: Mapped[str] = mapped_column(String(32), default="")
     status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -27,6 +28,7 @@ class Drug(Base):
     __tablename__ = "drugs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    company: Mapped[str] = mapped_column(String(32), index=True)
     name: Mapped[str] = mapped_column(String(255))
     unit: Mapped[str] = mapped_column(String(32), default="упак")
     price: Mapped[float] = mapped_column(default=0)
@@ -39,6 +41,7 @@ class SpekCounter(Base):
     __tablename__ = "spek_counter"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    company: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     last_number: Mapped[int] = mapped_column(default=0)
 
 
@@ -46,6 +49,7 @@ class Spek(Base):
     __tablename__ = "speks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    company: Mapped[str] = mapped_column(String(32), index=True)
     number: Mapped[int] = mapped_column()
     user_id: Mapped[int] = mapped_column(BigInteger)
     user_name: Mapped[str] = mapped_column(String(255), default="")
@@ -60,6 +64,7 @@ class Contract(Base):
     __tablename__ = "contracts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    company: Mapped[str] = mapped_column(String(32), index=True)
     inn: Mapped[str] = mapped_column(String(32), index=True)
     firma: Mapped[str] = mapped_column(String(255))
     number: Mapped[str] = mapped_column(String(64))
@@ -76,5 +81,5 @@ class Contract(Base):
 class Setting(Base):
     __tablename__ = "settings"
 
-    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(String(255), default="")
