@@ -54,7 +54,11 @@ from app.keyboards.admin import (
     get_users_menu,
 )
 from app.keyboards.main_menu import get_main_menu
-from app.states.admin import AdminContractForm, AdminDrugForm, AdminSettingsForm, AdminUserForm
+from app.states.admin import (
+    AdminContractForm,
+    AdminDrugForm,
+    AdminSettingsForm,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -95,7 +99,10 @@ async def admin_back(call: CallbackQuery, state: FSMContext):
         await call.answer("Ruxsat yo‘q", show_alert=True)
         return
     await state.clear()
-    await call.message.edit_text("👨‍💼 <b>Admin panel</b>", reply_markup=get_admin_menu())
+    try:
+        await call.message.edit_text("👨‍💼 <b>Admin panel</b>", reply_markup=get_admin_menu())
+    except Exception:
+        await call.message.answer("👨‍💼 <b>Admin panel</b>", reply_markup=get_admin_menu())
     await call.answer()
 
 
@@ -136,11 +143,16 @@ async def admin_users_status(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         return
     status = call.data.split(":")[2]
-    text = "🏢 Kompaniyani tanlang:"
     try:
-        await call.message.edit_text(text, reply_markup=get_users_company_keyboard(status))
+        await call.message.edit_text(
+            "🏢 Kompaniyani tanlang:",
+            reply_markup=get_users_company_keyboard(status),
+        )
     except Exception:
-        await call.message.answer(text, reply_markup=get_users_company_keyboard(status))
+        await call.message.answer(
+            "🏢 Kompaniyani tanlang:",
+            reply_markup=get_users_company_keyboard(status),
+        )
     await call.answer()
 
 
@@ -166,16 +178,15 @@ async def admin_users_list(call: CallbackQuery):
             )
 
     if not users:
-        await call.answer("Bo‘sh", show_alert=True)
+        await call.answer("Bu bo‘limda foydalanuvchilar yo‘q.", show_alert=True)
         return
 
     buttons = []
     for u in users:
         status_icon = {"pending": "⏳", "approved": "✅", "rejected": "❌"}.get(u.status, "?")
-        co_icon = "🏢"
         buttons.append([
             InlineKeyboardButton(
-                text=f"{status_icon} {co_icon}{u.first_name} {u.last_name}",
+                text=f"{status_icon} {u.first_name} {u.last_name}",
                 callback_data=f"admin:user:view:{u.id}",
             )
         ])
@@ -214,7 +225,10 @@ async def admin_user_view(call: CallbackQuery):
         f"📊 Holat: {status_label}\n"
         f"📅 Ro‘yxatdan: {_tashkent(u.created_at)}"
     )
-    await call.message.edit_text(text, reply_markup=get_user_view_keyboard(u.id))
+    try:
+        await call.message.edit_text(text, reply_markup=get_user_view_keyboard(u.id))
+    except Exception:
+        await call.message.answer(text, reply_markup=get_user_view_keyboard(u.id))
     await call.answer()
 
 
@@ -223,10 +237,16 @@ async def admin_user_company(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         return
     user_id = int(call.data.split(":")[3])
-    await call.message.edit_text(
-        "🏢 Yangi kompaniyani tanlang:",
-        reply_markup=get_user_company_keyboard(user_id),
-    )
+    try:
+        await call.message.edit_text(
+            "🏢 Yangi kompaniyani tanlang:",
+            reply_markup=get_user_company_keyboard(user_id),
+        )
+    except Exception:
+        await call.message.answer(
+            "🏢 Yangi kompaniyani tanlang:",
+            reply_markup=get_user_company_keyboard(user_id),
+        )
     await call.answer()
 
 
@@ -357,10 +377,16 @@ async def admin_drugs(call: CallbackQuery, state: FSMContext):
         await call.answer("Ruxsat yo‘q", show_alert=True)
         return
     await state.clear()
-    await call.message.edit_text(
-        "💊 <b>Kompaniyani tanlang:</b>",
-        reply_markup=get_drugs_company_keyboard(),
-    )
+    try:
+        await call.message.edit_text(
+            "💊 <b>Kompaniyani tanlang:</b>",
+            reply_markup=get_drugs_company_keyboard(),
+        )
+    except Exception:
+        await call.message.answer(
+            "💊 <b>Kompaniyani tanlang:</b>",
+            reply_markup=get_drugs_company_keyboard(),
+        )
     await call.answer()
 
 
@@ -368,482 +394,4 @@ async def admin_drugs(call: CallbackQuery, state: FSMContext):
 async def admin_drugs_company(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return
-    company = call.data.split(":")[3]
-    if company not in COMPANIES:
-        await call.answer("Noto‘g‘ri kompaniya", show_alert=True)
-        return
-    await state.clear()
-    await call.message.edit_text(
-        f"💊 <b>{COMPANIES[company]}</b>",
-        reply_markup=get_drugs_menu(company),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("admin:drug:add:"))
-async def admin_drug_add(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    company = call.data.split(":")[3]
-    if company not in COMPANIES:
-        await call.answer("Noto‘g‘ri kompaniya", show_alert=True)
-        return
-    await state.update_data(company=company)
-    await state.set_state(AdminDrugForm.add_name)
-    await call.message.edit_text(
-        f"➕ <b>Yangi dori</b> ({COMPANIES[company]})\n\nNomi:",
-        reply_markup=get_cancel_keyboard(),
-    )
-    await call.answer()
-
-
-@router.message(AdminDrugForm.add_name)
-async def add_name(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    await state.update_data(name=m.text or "")
-    await state.set_state(AdminDrugForm.add_unit)
-    await m.answer("📏 O‘lchov birligi (masalan: упак):", reply_markup=get_cancel_keyboard())
-
-
-@router.message(AdminDrugForm.add_unit)
-async def add_unit(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    await state.update_data(unit=m.text or "упак")
-    await state.set_state(AdminDrugForm.add_price)
-    await m.answer("💰 Narxi (QQS bilan):", reply_markup=get_cancel_keyboard())
-
-
-@router.message(AdminDrugForm.add_price)
-async def add_price(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    try:
-        price = float((m.text or "").replace(",", ".").replace(" ", "").strip())
-    except ValueError:
-        await m.answer("❌ Raqam kiriting.")
-        return
-    data = await state.get_data()
-    company = data.get("company", "")
-    async with async_session() as session:
-        await add_drug(session, company, data["name"], data["unit"], price)
-    await state.clear()
-    await m.answer(
-        f"✅ Dori qo‘shildi: {data['name']}",
-        reply_markup=get_drugs_menu(company),
-    )
-
-
-@router.callback_query(F.data.startswith("admin:drug:list:"))
-async def admin_drug_list(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    company = call.data.split(":")[3]
-    await state.clear()
-    async with async_session() as session:
-        drugs = await get_drugs_by_company(session, company)
-    if not drugs:
-        await call.message.edit_text(
-            "📋 Ro‘yxat bo‘sh.",
-            reply_markup=get_drugs_menu(company),
-        )
-        await call.answer()
-        return
-    await call.message.edit_text(
-        f"📋 <b>{COMPANIES.get(company, company)} dorilari:</b>",
-        reply_markup=get_drugs_list_keyboard(drugs, company),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("admin:drug:edit:"))
-async def admin_drug_edit(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    drug_id = int(call.data.split(":")[3])
-    async with async_session() as session:
-        drug = await get_drug(session, drug_id)
-    if not drug:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    price = f"{int(drug.price):,}".replace(",", " ")
-    await call.message.edit_text(
-        f"✏️ <b>{drug.name}</b>\n\n"
-        f"🏢 {COMPANIES.get(drug.company, drug.company)}\n"
-        f"📏 Birligi: {drug.unit}\n"
-        f"💰 Narxi: {price}",
-        reply_markup=get_drug_edit_keyboard(drug_id),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("admin:drug:en:"))
-async def edit_name_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    drug_id = int(call.data.split(":")[3])
-    await state.update_data(drug_id=drug_id)
-    await state.set_state(AdminDrugForm.edit_name)
-    await call.message.edit_text("✏️ Yangi nomi:", reply_markup=get_cancel_keyboard())
-    await call.answer()
-
-
-@router.message(AdminDrugForm.edit_name)
-async def edit_name(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    data = await state.get_data()
-    async with async_session() as session:
-        drug = await get_drug(session, data["drug_id"])
-        if drug:
-            await update_drug(session, drug.id, m.text or "", drug.unit, drug.price)
-            await state.clear()
-            await m.answer("✅ Nom o‘zgartirildi.", reply_markup=get_drugs_menu(drug.company))
-            return
-    await state.clear()
-    await m.answer("❌ Dori topilmadi.")
-
-
-@router.callback_query(F.data.startswith("admin:drug:eu:"))
-async def edit_unit_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    drug_id = int(call.data.split(":")[3])
-    await state.update_data(drug_id=drug_id)
-    await state.set_state(AdminDrugForm.edit_unit)
-    await call.message.edit_text("📏 Yangi birlik:", reply_markup=get_cancel_keyboard())
-    await call.answer()
-
-
-@router.message(AdminDrugForm.edit_unit)
-async def edit_unit(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    data = await state.get_data()
-    async with async_session() as session:
-        drug = await get_drug(session, data["drug_id"])
-        if drug:
-            await update_drug(session, drug.id, drug.name, m.text or "", drug.price)
-            await state.clear()
-            await m.answer("✅ Birlik o‘zgartirildi.", reply_markup=get_drugs_menu(drug.company))
-            return
-    await state.clear()
-    await m.answer("❌ Dori topilmadi.")
-
-
-@router.callback_query(F.data.startswith("admin:drug:ep:"))
-async def edit_price_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    drug_id = int(call.data.split(":")[3])
-    await state.update_data(drug_id=drug_id)
-    await state.set_state(AdminDrugForm.edit_price)
-    await call.message.edit_text("💰 Yangi narx:", reply_markup=get_cancel_keyboard())
-    await call.answer()
-
-
-@router.message(AdminDrugForm.edit_price)
-async def edit_price(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    try:
-        price = float((m.text or "").replace(",", ".").replace(" ", "").strip())
-    except ValueError:
-        await m.answer("❌ Raqam kiriting.")
-        return
-    data = await state.get_data()
-    async with async_session() as session:
-        drug = await get_drug(session, data["drug_id"])
-        if drug:
-            await update_drug(session, drug.id, drug.name, drug.unit, price)
-            await state.clear()
-            await m.answer("✅ Narx o‘zgartirildi.", reply_markup=get_drugs_menu(drug.company))
-            return
-    await state.clear()
-    await m.answer("❌ Dori topilmadi.")
-
-
-@router.callback_query(F.data.startswith("admin:drug:del:"))
-async def del_drug(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    parts = call.data.split(":")
-    drug_id = int(parts[3])
-    company = parts[4] if len(parts) > 4 else ""
-    async with async_session() as session:
-        await delete_drug(session, drug_id)
-    await call.answer("🗑 O‘chirildi")
-    if company:
-        async with async_session() as session:
-            drugs = await get_drugs_by_company(session, company)
-        if not drugs:
-            await call.message.edit_text(
-                "📋 Ro‘yxat bo‘sh.",
-                reply_markup=get_drugs_menu(company),
-            )
-        else:
-            await call.message.edit_text(
-                f"📋 <b>{COMPANIES.get(company, company)} dorilari:</b>",
-                reply_markup=get_drugs_list_keyboard(drugs, company),
-            )
-
-
-@router.callback_query(F.data.startswith("admin:drug:del2:"))
-async def del_drug_2(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    drug_id = int(call.data.split(":")[3])
-    async with async_session() as session:
-        drug = await get_drug(session, drug_id)
-        company = drug.company if drug else ""
-        await delete_drug(session, drug_id)
-    await call.answer("🗑 O‘chirildi")
-    if company:
-        async with async_session() as session:
-            drugs = await get_drugs_by_company(session, company)
-        if not drugs:
-            await call.message.edit_text(
-                "📋 Ro‘yxat bo‘sh.",
-                reply_markup=get_drugs_menu(company),
-            )
-        else:
-            await call.message.edit_text(
-                f"📋 <b>{COMPANIES.get(company, company)} dorilari:</b>",
-                reply_markup=get_drugs_list_keyboard(drugs, company),
-            )
-
-
-# ========== CONTRACTS ==========
-
-@router.callback_query(F.data == "admin:contracts")
-async def admin_contracts(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        await call.answer("Ruxsat yo‘q", show_alert=True)
-        return
-    await state.clear()
-    await call.message.edit_text("📄 <b>Shartnomalar</b>", reply_markup=get_contracts_menu())
-    await call.answer()
-
-
-@router.callback_query(F.data == "admin:contract:search")
-async def contract_search_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    await state.set_state(AdminContractForm.search_inn)
-    await call.message.edit_text(
-        "🔍 <b>INN bo‘yicha qidirish</b>\n\nINN raqamini kiriting:",
-        reply_markup=get_cancel_keyboard(),
-    )
-    await call.answer()
-
-
-@router.message(AdminContractForm.search_inn)
-async def contract_search(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    inn = (m.text or "").strip()
-    await state.clear()
-    async with async_session() as session:
-        contracts = await get_contracts_by_inn(session, inn)
-    if not contracts:
-        await m.answer(
-            f"❌ INN <b>{inn}</b> bo‘yicha shartnoma topilmadi.",
-            reply_markup=get_contracts_menu(),
-        )
-        return
-    await m.answer(
-        f"📄 <b>{inn}</b> — {len(contracts)} ta shartnoma:",
-        reply_markup=get_contracts_list_keyboard(contracts),
-    )
-
-
-@router.callback_query(F.data.startswith("admin:contract:view:"))
-async def contract_view(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    contract_id = int(call.data.split(":")[3])
-    async with async_session() as session:
-        c = await get_contract(session, contract_id)
-    if not c:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    text = (
-        f"📄 <b>Shartnoma</b>\n\n"
-        f"🏢 Kompaniya: {_company_name(c.company)}\n"
-        f"🏢 Firma: {c.firma}\n"
-        f"🔢 INN: {c.inn}\n"
-        f"🔢 Raqam: {c.number}\n"
-        f"📅 Sana: {c.date}\n"
-        f"👤 Yuboruvchi: {c.user_name}\n"
-        f"📅 Yaratilgan: {_tashkent(c.created_at)}"
-    )
-    await call.message.edit_text(text, reply_markup=get_contract_view_keyboard(contract_id))
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("admin:contract:pdf:"))
-async def contract_pdf(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    contract_id = int(call.data.split(":")[3])
-    async with async_session() as session:
-        c = await get_contract(session, contract_id)
-    if not c or not c.pdf_data:
-        await call.answer("PDF topilmadi", show_alert=True)
-        return
-    file = BufferedInputFile(c.pdf_data, filename=c.pdf_name or f"shartnoma_{c.number}.pdf")
-    await bot.send_document(call.from_user.id, file)
-    await call.answer("PDF yuborildi")
-
-
-# ========== SPEKS ==========
-
-@router.callback_query(F.data == "admin:speks")
-async def admin_speks(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        await call.answer("Ruxsat yo‘q", show_alert=True)
-        return
-    await state.clear()
-    buttons = []
-    for key, name in COMPANIES.items():
-        buttons.append([
-            InlineKeyboardButton(text=f"🏢 {name}", callback_data=f"admin:speks:co:{key}")
-        ])
-    buttons.append([InlineKeyboardButton(text="📋 Barchasi", callback_data="admin:speks:co:ALL")])
-    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")])
-    await call.message.edit_text(
-        "📊 <b>Qaysi kompaniya?</b>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("admin:speks:co:"))
-async def admin_speks_company(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    company = call.data.split(":")[3]
-    async with async_session() as session:
-        if company == "ALL":
-            speks = await get_all_speks(session, limit=100)
-        else:
-            speks = await get_all_speks(session, company=company, limit=100)
-
-    if not speks:
-        await call.message.edit_text(
-            "📊 Spetsifikatsiyalar yo‘q.",
-            reply_markup=get_admin_menu(),
-        )
-        await call.answer()
-        return
-
-    lines = ["📊 <b>Spetsifikatsiyalar:</b>\n"]
-    for s in speks:
-        total_str = f"{int(s.total):,}".replace(",", " ")
-        co = COMPANIES.get(s.company, s.company)
-        lines.append(f"№ {s.number} [{co}] — {s.user_name} — {total_str} so'm")
-    await call.message.edit_text("\n".join(lines), reply_markup=get_admin_menu())
-    await call.answer()
-
-
-# ========== SETTINGS ==========
-
-@router.callback_query(F.data == "admin:settings")
-async def admin_settings(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        await call.answer("Ruxsat yo‘q", show_alert=True)
-        return
-    await state.clear()
-    prefixes = {}
-    speks = {}
-    async with async_session() as session:
-        for key in COMPANIES:
-            prefixes[key] = await get_contract_prefix(session, key)
-            speks[key] = await get_spek_counter(session, key)
-    await call.message.edit_text(
-        "⚙️ <b>Sozlamalar</b>",
-        reply_markup=get_settings_menu(prefixes, speks),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("admin:set:contract:"))
-async def settings_contract_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    company = call.data.split(":")[3]
-    if company not in COMPANIES:
-        return
-    async with async_session() as session:
-        prefix = await get_contract_prefix(session, company)
-    await state.update_data(company=company)
-    await state.set_state(AdminSettingsForm.edit_contract_vivora)
-    await call.message.edit_text(
-        f"🔢 <b>{COMPANIES[company]} — shartnoma raqami</b>\n\n"
-        f"Oxirgi raqam: <b>{prefix}</b>\n\n"
-        f"Yangi raqamni kiriting (masalan: 190/26):",
-        reply_markup=get_cancel_keyboard(),
-    )
-    await call.answer()
-
-
-@router.message(AdminSettingsForm.edit_contract_vivora)
-async def settings_contract_save(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    value = (m.text or "").strip()
-    if not value:
-        await m.answer("❌ Bo‘sh bo‘lmasin.")
-        return
-    data = await state.get_data()
-    company = data.get("company", "")
-    async with async_session() as session:
-        await set_contract_prefix(session, company, value)
-    await state.clear()
-    await m.answer(
-        f"✅ {COMPANIES.get(company, company)} shartnoma raqami: <b>{value}</b>",
-        reply_markup=get_admin_menu(),
-    )
-
-
-@router.callback_query(F.data.startswith("admin:set:spek:"))
-async def settings_spek_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    company = call.data.split(":")[3]
-    if company not in COMPANIES:
-        return
-    async with async_session() as session:
-        current = await get_spek_counter(session, company)
-    await state.update_data(company=company)
-    await state.set_state(AdminSettingsForm.edit_spek_vivora)
-    await call.message.edit_text(
-        f"📊 <b>{COMPANIES[company]} — spek raqami</b>\n\n"
-        f"Oxirgi raqam: <b>{current}</b>\n\n"
-        f"Yangi raqamni kiriting (masalan: 50):",
-        reply_markup=get_cancel_keyboard(),
-    )
-    await call.answer()
-
-
-@router.message(AdminSettingsForm.edit_spek_vivora)
-async def settings_spek_save(m: Message, state: FSMContext):
-    if not is_admin(m.from_user.id):
-        return
-    try:
-        value = int((m.text or "").strip())
-        if value < 0:
-            raise ValueError
-    except ValueError:
-        await m.answer("❌ Musbat butun raqam kiriting.")
-        return
-    data = await state.get_data()
-    company = data.get("company", "")
-    async with async_session() as session:
-        await set_spek_counter(session, company, value)
-    await state.clear()
-    await m.answer(
-        f"✅ {COMPANIES.get(company, company)} spek raqami: <b>{value}</b>",
-        reply_markup=get_admin_menu(),
-    )
+    company = call.data.split(":")[
