@@ -2,6 +2,14 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+COMPANIES = {
+    "vivora": "VIVORA GLOBAL",
+    "almas": "ALMAS PHARM MEDICINE",
+}
+
+COMPANY_KEYS = list(COMPANIES.keys())
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
