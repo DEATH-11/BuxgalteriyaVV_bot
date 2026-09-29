@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
-from app.config import settings
+from app.config import COMPANIES, settings
 from app.database.base import async_session
 from app.database.repo import (
     get_user,
@@ -14,7 +14,11 @@ from app.database.repo import (
     save_contract,
 )
 from app.keyboards.main_menu import get_main_menu, get_menu_button
-from app.keyboards.shartnoma import get_confirm_keyboard, get_nav_keyboard
+from app.keyboards.shartnoma import (
+    get_company_keyboard,
+    get_confirm_keyboard,
+    get_nav_keyboard,
+)
 from app.services.docx_service import render_shartnoma
 from app.services.pdf_service import convert_to_pdf
 from app.states.shartnoma import ShartnomaForm
@@ -25,12 +29,12 @@ router = Router()
 
 STEPS = {
     "uz": [
-        ("firma_nomi", "1/2 — 🏢 Firma nomini kiriting."),
-        ("stir_raqami", "2/2 — 🔢 STIR (INN) raqamini kiriting."),
+        ("firma_nomi", "2/3 — 🏢 Firma nomini kiriting."),
+        ("stir_raqami", "3/3 — 🔢 STIR (INN) raqamini kiriting."),
     ],
     "ru": [
-        ("firma_nomi", "1/2 — 🏢 Введите название фирмы."),
-        ("stir_raqami", "2/2 — 🔢 Введите ИНН."),
+        ("firma_nomi", "2/3 — 🏢 Введите название фирмы."),
+        ("stir_raqami", "3/3 — 🔢 Введите ИНН."),
     ],
 }
 
@@ -42,6 +46,7 @@ STATES = {
 TEXTS = {
     "uz": {
         "title": "📄 <b>Shartnoma yaratish</b>",
+        "ask_company": "1/3 — 🏢 Qaysi kompaniya uchun shartnoma?",
         "confirm": "📋 <b>Tekshiring:</b>",
         "creating": "⏳ Hujjat tayyorlanmoqda...",
         "menu": "Asosiy menyu:",
@@ -49,10 +54,12 @@ TEXTS = {
         "date": "📅 Sana",
         "firm": "🏢 Firma",
         "inn": "🔢 INN",
+        "company": "🏢 Kompaniya",
         "denied": "⛔ Siz tasdiqlanmagansiz.",
     },
     "ru": {
         "title": "📄 <b>Создание договора</b>",
+        "ask_company": "1/3 — 🏢 Для какой компании договор?",
         "confirm": "📋 <b>Проверьте:</b>",
         "creating": "⏳ Документ готовится...",
         "menu": "Главное меню:",
@@ -60,6 +67,7 @@ TEXTS = {
         "date": "📅 Дата",
         "firm": "🏢 Фирма",
         "inn": "🔢 ИНН",
+        "company": "🏢 Компания",
         "denied": "⛔ Вы не подтверждены.",
     },
 }
@@ -69,6 +77,10 @@ async def _check_approved(user_id: int) -> bool:
     async with async_session() as session:
         u = await get_user(session, user_id)
     return bool(u and u.status == "approved")
+
+
+def _company_name(key: str) -> str:
+    return COMPANIES.get(key, key)
 
 
 async def _notify_admins(text: str):
@@ -110,9 +122,11 @@ async def _show_confirm(message: Message, state: FSMContext, lang: str):
     a = data.get("answers", {})
     number = data.get("contract_number", "")
     date = data.get("contract_date", "")
+    company = data.get("company", "")
     t = TEXTS.get(lang, TEXTS["uz"])
     text = (
         f"{t['confirm']}\n\n"
+        f"{t['company']}: {_company_name(company)}\n"
         f"{t['number']}: {number}\n"
         f"{t['date']}: {date}\n"
         f"{t['firm']}: {a.get('firma_nomi', '—')}\n"
@@ -123,14 +137,24 @@ async def _show_confirm(message: Message, state: FSMContext, lang: str):
 
 
 async def _prepare_and_ask(message: Message, state: FSMContext, lang: str):
+    data = await state.get_data()
+    company = data.get("company", "")
     async with async_session() as session:
-        number = await next_contract_number(session)
+        number = await next_contract_number(session, company)
     date = datetime.now().strftime("%d.%m.%Y")
     await state.update_data(contract_number=number, contract_date=date)
     if lang == "uz":
-        await message.answer(f"🔢 Raqam: <b>{number}</b>\n📅 Sana: <b>{date}</b>")
+        await message.answer(
+            f"🏢 Kompaniya: <b>{_company_name(company)}</b>\n"
+            f"🔢 Raqam: <b>{number}</b>\n"
+            f"📅 Sana: <b>{date}</b>"
+        )
     else:
-        await message.answer(f"🔢 Номер: <b>{number}</b>\n📅 Дата: <b>{date}</b>")
+        await message.answer(
+            f"🏢 Компания: <b>{_company_name(company)}</b>\n"
+            f"🔢 Номер: <b>{number}</b>\n"
+            f"📅 Дата: <b>{date}</b>"
+        )
     await _ask(message, state, 0, lang)
 
 
@@ -142,7 +166,11 @@ async def start_shartnoma_uz(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(answers={}, step=0, lang="uz")
     await message.answer(TEXTS["uz"]["title"], reply_markup=get_menu_button("uz"))
-    await _prepare_and_ask(message, state, "uz")
+    await message.answer(
+        TEXTS["uz"]["ask_company"],
+        reply_markup=get_company_keyboard("sh"),
+    )
+    await state.set_state(ShartnomaForm.company)
 
 
 @router.message(F.text == "📄 Создать договор")
@@ -153,7 +181,28 @@ async def start_shartnoma_ru(message: Message, state: FSMContext):
     await state.clear()
     await state.update_data(answers={}, step=0, lang="ru")
     await message.answer(TEXTS["ru"]["title"], reply_markup=get_menu_button("ru"))
-    await _prepare_and_ask(message, state, "ru")
+    await message.answer(
+        TEXTS["ru"]["ask_company"],
+        reply_markup=get_company_keyboard("sh"),
+    )
+    await state.set_state(ShartnomaForm.company)
+
+
+@router.callback_query(F.data.startswith("sh:company:"))
+async def sh_company(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
+    key = call.data.split(":", 2)[2]
+    if key not in COMPANIES:
+        await call.answer("Noto‘g‘ri kompaniya.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
+    await state.update_data(company=key)
+    await call.message.edit_reply_markup(reply_markup=None)
+    await _prepare_and_ask(call.message, state, lang)
+    await call.answer()
 
 
 @router.message(F.text == "🏠 Menu")
@@ -217,7 +266,11 @@ async def sh_restart(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(answers={}, step=0, lang=lang)
     await call.message.edit_reply_markup(reply_markup=None)
-    await _prepare_and_ask(call.message, state, lang)
+    await call.message.answer(
+        TEXTS[lang]["ask_company"],
+        reply_markup=get_company_keyboard("sh"),
+    )
+    await state.set_state(ShartnomaForm.company)
     await call.answer()
 
 
@@ -233,6 +286,7 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     a = data.get("answers", {})
     number = data.get("contract_number", "")
     date = data.get("contract_date", "")
+    company = data.get("company", "")
     t = TEXTS.get(lang, TEXTS["uz"])
 
     await call.message.edit_text(t["creating"])
@@ -246,7 +300,7 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     }
 
     try:
-        docx_path = render_shartnoma(payload)
+        docx_path = render_shartnoma(company, payload)
     except Exception as e:
         logger.error(f"DOCX error: {e}")
         await call.message.answer(f"❌ Xato: {e}")
@@ -266,6 +320,7 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
         async with async_session() as session:
             await save_contract(
                 session,
+                company=company,
                 inn=payload["stir_raqami"],
                 firma=payload["firma_nomi"],
                 number=payload["shartnoma_raqami"],
@@ -285,6 +340,7 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     username = f"@{user.username}" if user.username else "—"
     notify_text = (
         "📄 <b>YANGI SHARTNOMA</b>\n\n"
+        f"🏢 Kompaniya: {_company_name(company)}\n"
         f"👤 User: {user.full_name}\n"
         f"🔗 Username: {username}\n"
         f"🏢 Firma: {payload['firma_nomi']}\n"
