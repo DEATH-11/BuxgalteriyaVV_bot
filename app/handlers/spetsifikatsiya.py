@@ -5,10 +5,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot_instance import bot
-from app.config import settings
+from app.config import COMPANIES, settings
 from app.database.base import async_session
-from app.database.repo import get_all_drugs, get_drug, get_user, save_spek
+from app.database.repo import (
+    get_drug,
+    get_drugs_by_company,
+    get_user,
+    save_spek,
+)
 from app.keyboards.main_menu import get_main_menu, get_menu_button
+from app.keyboards.shartnoma import get_company_keyboard
 from app.keyboards.spetsifikatsiya import (
     get_confirm_keyboard,
     get_drugs_keyboard,
@@ -26,11 +32,32 @@ router = Router()
 DENIED_UZ = "⛔ Siz tasdiqlanmagansiz."
 DENIED_RU = "⛔ Вы не подтверждены."
 
+TEXTS = {
+    "uz": {
+        "title": "📊 <b>Spetsifikatsiya yaratish</b>",
+        "ask_company": "1/2 — 🏢 Qaysi kompaniya uchun?",
+        "pick_drug": "💊 <b>Dori tanlang:</b>",
+        "empty_drugs": "❌ Bu kompaniya uchun dorilar ro‘yxati bo‘sh.",
+        "menu": "Asosiy menyu:",
+    },
+    "ru": {
+        "title": "📊 <b>Создание спецификации</b>",
+        "ask_company": "1/2 — 🏢 Для какой компании?",
+        "pick_drug": "💊 <b>Выберите товар:</b>",
+        "empty_drugs": "❌ Для этой компании список товаров пуст.",
+        "menu": "Главное меню:",
+    },
+}
+
 
 async def _check_approved(user_id: int) -> bool:
     async with async_session() as session:
         u = await get_user(session, user_id)
     return bool(u and u.status == "approved")
+
+
+def _company_name(key: str) -> str:
+    return COMPANIES.get(key, key)
 
 
 async def _notify_admins(text: str):
@@ -51,14 +78,16 @@ def _fmt(num) -> str:
 async def _show_drugs(message: Message, state: FSMContext):
     data = await state.get_data()
     selected = data.get("selected", {})
+    company = data.get("company", "")
+    lang = data.get("lang", "uz")
     async with async_session() as session:
-        drugs = await get_all_drugs(session)
+        drugs = await get_drugs_by_company(session, company)
     if not drugs:
-        await message.answer("❌ Dorilar ro‘yxati bo‘sh. Admin bilan bog‘laning.")
+        await message.answer(TEXTS[lang]["empty_drugs"])
         return
     await state.set_state(SpetsifikatsiyaForm.pick_drug)
     await message.answer(
-        "💊 <b>Dori tanlang:</b>",
+        TEXTS[lang]["pick_drug"],
         reply_markup=get_drugs_keyboard(drugs, selected),
     )
 
@@ -84,11 +113,12 @@ async def start_spec_uz(message: Message, state: FSMContext):
         return
     await state.clear()
     await state.update_data(selected={}, items=[], lang="uz")
+    await message.answer(TEXTS["uz"]["title"], reply_markup=get_menu_button("uz"))
     await message.answer(
-        "📊 <b>Spetsifikatsiya yaratish</b>",
-        reply_markup=get_menu_button("uz"),
+        TEXTS["uz"]["ask_company"],
+        reply_markup=get_company_keyboard("sp"),
     )
-    await _show_drugs(message, state)
+    await state.set_state(SpetsifikatsiyaForm.company)
 
 
 @router.message(F.text == "📊 Создать спецификацию")
@@ -98,11 +128,27 @@ async def start_spec_ru(message: Message, state: FSMContext):
         return
     await state.clear()
     await state.update_data(selected={}, items=[], lang="ru")
+    await message.answer(TEXTS["ru"]["title"], reply_markup=get_menu_button("ru"))
     await message.answer(
-        "📊 <b>Создание спецификации</b>",
-        reply_markup=get_menu_button("ru"),
+        TEXTS["ru"]["ask_company"],
+        reply_markup=get_company_keyboard("sp"),
     )
-    await _show_drugs(message, state)
+    await state.set_state(SpetsifikatsiyaForm.company)
+
+
+@router.callback_query(F.data.startswith("sp:company:"))
+async def sp_company(call: CallbackQuery, state: FSMContext):
+    if not await _check_approved(call.from_user.id):
+        await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
+        return
+    key = call.data.split(":", 2)[2]
+    if key not in COMPANIES:
+        await call.answer("Noto‘g‘ri kompaniya.", show_alert=True)
+        return
+    await state.update_data(company=key, selected={}, items=[])
+    await call.message.edit_reply_markup(reply_markup=None)
+    await _show_drugs(call.message, state)
+    await call.answer()
 
 
 @router.message(F.text == "🏠 Menu")
@@ -293,10 +339,16 @@ async def spec_restart(call: CallbackQuery, state: FSMContext):
     if not await _check_approved(call.from_user.id):
         await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
         return
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
     await state.clear()
-    await state.update_data(selected={}, items=[], lang="uz")
+    await state.update_data(selected={}, items=[], lang=lang)
     await call.message.edit_reply_markup(reply_markup=None)
-    await _show_drugs(call.message, state)
+    await call.message.answer(
+        TEXTS[lang]["ask_company"],
+        reply_markup=get_company_keyboard("sp"),
+    )
+    await state.set_state(SpetsifikatsiyaForm.company)
     await call.answer()
 
 
@@ -311,10 +363,12 @@ async def spec_submit(call: CallbackQuery, state: FSMContext):
     items = data.get("items", [])
     total = data.get("total", 0)
     lang = data.get("lang", "uz")
+    company = data.get("company", "")
 
     async with async_session() as session:
         spek = await save_spek(
             session,
+            company=company,
             user_id=call.from_user.id,
             user_name=call.from_user.full_name,
             items=items,
@@ -331,7 +385,7 @@ async def spec_submit(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
     try:
-        docx_path = render_spetsifikatsiya(payload)
+        docx_path = render_spetsifikatsiya(company, payload)
     except Exception as e:
         logger.error(f"DOCX error: {e}")
         await call.message.answer(f"❌ Xato: {e}")
@@ -347,6 +401,7 @@ async def spec_submit(call: CallbackQuery, state: FSMContext):
     username = f"@{user.username}" if user.username else "—"
     lines = [
         "📊 <b>YANGI SPETSIFFIKATSIYA</b>\n",
+        f"🏢 Kompaniya: {_company_name(company)}",
         f"👤 User: {user.full_name}",
         f"🔗 Username: {username}",
         f"🔢 Raqam: {spek.number}",
