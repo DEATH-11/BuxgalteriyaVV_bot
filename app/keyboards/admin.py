@@ -155,7 +155,6 @@ def get_contract_view_keyboard(contract_id: int) -> InlineKeyboardMarkup:
 # ========== SETTINGS ==========
 
 def get_settings_company_keyboard() -> InlineKeyboardMarkup:
-    """Sozlamalar — kompaniya tanlash."""
     buttons = []
     for key, name in COMPANIES.items():
         buttons.append([
@@ -171,9 +170,7 @@ def get_settings_company_keyboard() -> InlineKeyboardMarkup:
 def get_company_settings_menu(
     company: str, prefix: str, spek_number: int, date_mode: str
 ) -> InlineKeyboardMarkup:
-    """Bitta kompaniya sozlamalari."""
     date_label = "Avto (bugungi)" if date_mode == "auto" else date_mode
-    name = COMPANIES.get(company, company)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(
