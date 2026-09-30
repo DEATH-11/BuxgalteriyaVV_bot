@@ -9,6 +9,7 @@ from app.bot_instance import bot
 from app.config import COMPANIES, settings
 from app.database.base import async_session
 from app.database.repo import (
+    get_contract_date_mode,
     get_user,
     next_contract_number,
     save_contract,
@@ -141,7 +142,13 @@ async def _prepare_and_ask(message: Message, state: FSMContext, lang: str):
     company = data.get("company", "")
     async with async_session() as session:
         number = await next_contract_number(session, company)
-    date = datetime.now().strftime("%d.%m.%Y")
+        date_mode = await get_contract_date_mode(session, company)
+
+    if date_mode == "auto":
+        date = datetime.now().strftime("%d.%m.%Y")
+    else:
+        date = date_mode
+
     await state.update_data(contract_number=number, contract_date=date)
     if lang == "uz":
         await message.answer(
@@ -200,7 +207,10 @@ async def sh_company(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
     await state.update_data(company=key)
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await _prepare_and_ask(call.message, state, lang)
     await call.answer()
 
@@ -238,7 +248,10 @@ async def sh_back(call: CallbackQuery, state: FSMContext):
             show_alert=True,
         )
         return
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await _ask(call.message, state, step - 1, lang)
     await call.answer()
 
@@ -248,7 +261,10 @@ async def sh_cancel(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "uz")
     await state.clear()
-    await call.message.edit_text("❌ Bekor qilindi." if lang == "uz" else "❌ Отменено.")
+    try:
+        await call.message.edit_text("❌ Bekor qilindi." if lang == "uz" else "❌ Отменено.")
+    except Exception:
+        pass
     await call.message.answer(
         "Asosiy menyu:" if lang == "uz" else "Главное меню:",
         reply_markup=get_main_menu(lang),
@@ -265,7 +281,10 @@ async def sh_restart(call: CallbackQuery, state: FSMContext):
     lang = data.get("lang", "uz")
     await state.clear()
     await state.update_data(answers={}, step=0, lang=lang)
-    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await call.message.answer(
         TEXTS[lang]["ask_company"],
         reply_markup=get_company_keyboard("sh"),
@@ -289,7 +308,10 @@ async def sh_submit(call: CallbackQuery, state: FSMContext):
     company = data.get("company", "")
     t = TEXTS.get(lang, TEXTS["uz"])
 
-    await call.message.edit_text(t["creating"])
+    try:
+        await call.message.edit_text(t["creating"])
+    except Exception:
+        pass
     await call.answer()
 
     payload = {
