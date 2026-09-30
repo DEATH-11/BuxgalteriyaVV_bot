@@ -42,6 +42,7 @@ TEXTS = {
             "Iltimos, administrator bilan bog‘laning."
         ),
         "menu": "Asosiy menyu:",
+        "cancelled": "❌ Bekor qilindi.",
     },
     "ru": {
         "title": "📊 <b>Создание спецификации</b>",
@@ -52,6 +53,7 @@ TEXTS = {
             "Пожалуйста, свяжитесь с администратором."
         ),
         "menu": "Главное меню:",
+        "cancelled": "❌ Отменено.",
     },
 }
 
@@ -82,7 +84,6 @@ def _fmt(num) -> str:
 
 
 async def _show_drugs(message: Message, state: FSMContext) -> bool:
-    """Dorilar ro‘yxatini ko‘rsatadi. Agar bo‘sh bo‘lsa — False qaytaradi."""
     data = await state.get_data()
     selected = data.get("selected", {})
     company = data.get("company", "")
@@ -119,6 +120,25 @@ async def _show_edit(message: Message, state: FSMContext):
         "✏️ <b>Tanlangan dorilar:</b>",
         reply_markup=get_edit_keyboard(selected),
     )
+
+
+async def _cancel_spec(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
+    await state.clear()
+    try:
+        await call.message.edit_text(TEXTS[lang]["cancelled"])
+    except Exception:
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await call.message.answer(TEXTS[lang]["cancelled"])
+    await call.message.answer(TEXTS[lang]["menu"], reply_markup=get_main_menu(lang))
+    try:
+        await call.answer()
+    except Exception:
+        pass
 
 
 @router.message(F.text == "📊 Spetsifikatsiya yaratish")
@@ -186,7 +206,11 @@ async def pick_drug(call: CallbackQuery, state: FSMContext):
     if not await _check_approved(call.from_user.id):
         await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
         return
-    drug_id = int(call.data.split(":")[2])
+    try:
+        drug_id = int(call.data.split(":")[2])
+    except Exception:
+        await call.answer("Xato", show_alert=True)
+        return
     data = await state.get_data()
     selected = data.get("selected", {})
 
@@ -286,7 +310,11 @@ async def del_drug(call: CallbackQuery, state: FSMContext):
     if not await _check_approved(call.from_user.id):
         await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
         return
-    drug_id = int(call.data.split(":")[2])
+    try:
+        drug_id = int(call.data.split(":")[2])
+    except Exception:
+        await call.answer("Xato", show_alert=True)
+        return
     data = await state.get_data()
     selected = data.get("selected", {})
     if drug_id in selected:
@@ -305,7 +333,11 @@ async def edit_qty_start(call: CallbackQuery, state: FSMContext):
     if not await _check_approved(call.from_user.id):
         await call.answer("Siz tasdiqlanmagansiz.", show_alert=True)
         return
-    drug_id = int(call.data.split(":")[2])
+    try:
+        drug_id = int(call.data.split(":")[2])
+    except Exception:
+        await call.answer("Xato", show_alert=True)
+        return
     data = await state.get_data()
     selected = data.get("selected", {})
     item = selected.get(drug_id)
@@ -372,15 +404,7 @@ async def spec_done(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "spec:cancel")
 async def spec_cancel(call: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    await state.clear()
-    try:
-        await call.message.edit_text("❌ Bekor qilindi.")
-    except Exception:
-        await call.message.answer("❌ Bekor qilindi.")
-    await call.message.answer("Asosiy menyu:", reply_markup=get_main_menu(lang))
-    await call.answer()
+    await _cancel_spec(call, state)
 
 
 @router.callback_query(F.data == "spec:restart")
