@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import timedelta, timezone
 
 from aiogram import F, Router
@@ -24,6 +25,7 @@ from app.database.repo import (
     get_all_speks,
     get_all_users,
     get_contract,
+    get_contract_date_mode,
     get_contract_prefix,
     get_contracts_by_inn,
     get_drug,
@@ -31,6 +33,7 @@ from app.database.repo import (
     get_spek_counter,
     get_user_by_id,
     get_users_by_company,
+    set_contract_date_mode,
     set_contract_prefix,
     set_spek_counter,
     set_user_company,
@@ -43,6 +46,7 @@ from app.keyboards.admin import (
     get_contract_view_keyboard,
     get_contracts_list_keyboard,
     get_contracts_menu,
+    get_date_mode_keyboard,
     get_drug_edit_keyboard,
     get_drugs_company_keyboard,
     get_drugs_list_keyboard,
@@ -70,6 +74,8 @@ STATUS_LABELS = {
     "approved": "✅ Tasdiqlangan",
     "rejected": "❌ Rad etilgan",
 }
+
+DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 
 
 def is_admin(user_id: int) -> bool:
@@ -881,20 +887,27 @@ async def admin_settings(call: CallbackQuery, state: FSMContext):
     await state.clear()
     prefixes = {}
     speks = {}
+    dates = {}
     async with async_session() as session:
         for key in COMPANIES:
             prefixes[key] = await get_contract_prefix(session, key)
             speks[key] = await get_spek_counter(session, key)
+            dates[key] = await get_contract_date_mode(session, key)
     try:
         await call.message.edit_text(
             "⚙️ <b>Sozlamalar</b>",
-            reply_markup=get_settings_menu(prefixes, speks),
+            reply_markup=get_settings_menu(prefixes, speks, dates),
         )
     except Exception:
         await call.message.answer(
             "⚙️ <b>Sozlamalar</b>",
-            reply_markup=get_settings_menu(prefixes, speks),
+            reply_markup=get_settings_menu(prefixes, speks, dates),
         )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("admin:set:noop:"))
+async def settings_noop(call: CallbackQuery):
     await call.answer()
 
 
@@ -941,6 +954,103 @@ async def settings_contract_save(m: Message, state: FSMContext):
     await state.clear()
     await m.answer(
         f"✅ {COMPANIES.get(company, company)} shartnoma raqami: <b>{value}</b>",
+        reply_markup=get_admin_menu(),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:set:date:"))
+async def settings_date_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    company = call.data.split(":")[3]
+    if company not in COMPANIES:
+        return
+    async with async_session() as session:
+        current = await get_contract_date_mode(session, company)
+    label = "Avto (bugungi)" if current == "auto" else current
+    try:
+        await call.message.edit_text(
+            f"📅 <b>{COMPANIES[company]} — shartnoma sanasi</b>\n\n"
+            f"Hozirgi: <b>{label}</b>",
+            reply_markup=get_date_mode_keyboard(company),
+        )
+    except Exception:
+        await call.message.answer(
+            f"📅 <b>{COMPANIES[company]} — shartnoma sanasi</b>\n\n"
+            f"Hozirgi: <b>{label}</b>",
+            reply_markup=get_date_mode_keyboard(company),
+        )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("admin:date:auto:"))
+async def settings_date_auto(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    company = call.data.split(":")[3]
+    if company not in COMPANIES:
+        return
+    async with async_session() as session:
+        await set_contract_date_mode(session, company, "auto")
+    await call.answer("✅ Avto o‘rnatildi", show_alert=False)
+    await admin_settings(call, state)
+
+
+@router.callback_query(F.data.startswith("admin:date:manual:"))
+async def settings_date_manual(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    company = call.data.split(":")[3]
+    if company not in COMPANIES:
+        return
+    await state.update_data(company=company)
+    if company == "vivora":
+        await state.set_state(AdminSettingsForm.edit_date_vivora)
+    else:
+        await state.set_state(AdminSettingsForm.edit_date_almas)
+    try:
+        await call.message.edit_text(
+            f"✏️ <b>{COMPANIES[company]} — yangi sana</b>\n\n"
+            f"Sanani kiriting (masalan: 24.09.2026):",
+            reply_markup=get_cancel_keyboard(),
+        )
+    except Exception:
+        await call.message.answer(
+            f"✏️ <b>{COMPANIES[company]} — yangi sana</b>\n\n"
+            f"Sanani kiriting (masalan: 24.09.2026):",
+            reply_markup=get_cancel_keyboard(),
+        )
+    await call.answer()
+
+
+@router.message(AdminSettingsForm.edit_date_vivora)
+async def settings_date_save_vivora(m: Message, state: FSMContext):
+    await _save_date(m, state)
+
+
+@router.message(AdminSettingsForm.edit_date_almas)
+async def settings_date_save_almas(m: Message, state: FSMContext):
+    await _save_date(m, state)
+
+
+async def _save_date(m: Message, state: FSMContext):
+    if not is_admin(m.from_user.id):
+        return
+    value = (m.text or "").strip()
+    if not DATE_RE.match(value):
+        await m.answer(
+            "❌ Sana noto‘g‘ri formatda.\n"
+            "To‘g‘ri format: DD.MM.YYYY (masalan: 24.09.2026)",
+            reply_markup=get_cancel_keyboard(),
+        )
+        return
+    data = await state.get_data()
+    company = data.get("company", "")
+    async with async_session() as session:
+        await set_contract_date_mode(session, company, value)
+    await state.clear()
+    await m.answer(
+        f"✅ {COMPANIES.get(company, company)} shartnoma sanasi: <b>{value}</b>",
         reply_markup=get_admin_menu(),
     )
 
