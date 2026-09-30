@@ -43,6 +43,7 @@ from app.database.repo import (
 from app.keyboards.admin import (
     get_admin_menu,
     get_cancel_keyboard,
+    get_company_settings_menu,
     get_contract_view_keyboard,
     get_contracts_list_keyboard,
     get_contracts_menu,
@@ -51,7 +52,8 @@ from app.keyboards.admin import (
     get_drugs_company_keyboard,
     get_drugs_list_keyboard,
     get_drugs_menu,
-    get_settings_menu,
+    get_settings_cancel_keyboard,
+    get_settings_company_keyboard,
     get_user_company_keyboard,
     get_user_view_keyboard,
     get_users_company_keyboard,
@@ -885,29 +887,44 @@ async def admin_settings(call: CallbackQuery, state: FSMContext):
         await call.answer("Ruxsat yo‘q", show_alert=True)
         return
     await state.clear()
-    prefixes = {}
-    speks = {}
-    dates = {}
-    async with async_session() as session:
-        for key in COMPANIES:
-            prefixes[key] = await get_contract_prefix(session, key)
-            speks[key] = await get_spek_counter(session, key)
-            dates[key] = await get_contract_date_mode(session, key)
     try:
         await call.message.edit_text(
-            "⚙️ <b>Sozlamalar</b>",
-            reply_markup=get_settings_menu(prefixes, speks, dates),
+            "⚙️ <b>Sozlamalar</b>\n\nQaysi kompaniya?",
+            reply_markup=get_settings_company_keyboard(),
         )
     except Exception:
         await call.message.answer(
-            "⚙️ <b>Sozlamalar</b>",
-            reply_markup=get_settings_menu(prefixes, speks, dates),
+            "⚙️ <b>Sozlamalar</b>\n\nQaysi kompaniya?",
+            reply_markup=get_settings_company_keyboard(),
         )
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("admin:set:noop:"))
-async def settings_noop(call: CallbackQuery):
+@router.callback_query(F.data.startswith("admin:settings:co:"))
+async def admin_settings_company(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("Ruxsat yo‘q", show_alert=True)
+        return
+    company = call.data.split(":")[3]
+    if company not in COMPANIES:
+        await call.answer("Noto‘g‘ri kompaniya", show_alert=True)
+        return
+    await state.clear()
+    async with async_session() as session:
+        prefix = await get_contract_prefix(session, company)
+        spek_number = await get_spek_counter(session, company)
+        date_mode = await get_contract_date_mode(session, company)
+    name = COMPANIES.get(company, company)
+    try:
+        await call.message.edit_text(
+            f"⚙️ <b>{name} sozlamalari</b>",
+            reply_markup=get_company_settings_menu(company, prefix, spek_number, date_mode),
+        )
+    except Exception:
+        await call.message.answer(
+            f"⚙️ <b>{name} sozlamalari</b>",
+            reply_markup=get_company_settings_menu(company, prefix, spek_number, date_mode),
+        )
     await call.answer()
 
 
@@ -927,14 +944,14 @@ async def settings_contract_start(call: CallbackQuery, state: FSMContext):
             f"🔢 <b>{COMPANIES[company]} — shartnoma raqami</b>\n\n"
             f"Oxirgi raqam: <b>{prefix}</b>\n\n"
             f"Yangi raqamni kiriting (masalan: 190/26):",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_settings_cancel_keyboard(company),
         )
     except Exception:
         await call.message.answer(
             f"🔢 <b>{COMPANIES[company]} — shartnoma raqami</b>\n\n"
             f"Oxirgi raqam: <b>{prefix}</b>\n\n"
             f"Yangi raqamni kiriting (masalan: 190/26):",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_settings_cancel_keyboard(company),
         )
     await call.answer()
 
@@ -945,16 +962,19 @@ async def settings_contract_save(m: Message, state: FSMContext):
         return
     value = (m.text or "").strip()
     if not value:
-        await m.answer("❌ Bo‘sh bo‘lmasin.", reply_markup=get_cancel_keyboard())
+        await m.answer("❌ Bo‘sh bo‘lmasin.")
         return
     data = await state.get_data()
     company = data.get("company", "")
     async with async_session() as session:
         await set_contract_prefix(session, company, value)
+        prefix = await get_contract_prefix(session, company)
+        spek_number = await get_spek_counter(session, company)
+        date_mode = await get_contract_date_mode(session, company)
     await state.clear()
     await m.answer(
-        f"✅ {COMPANIES.get(company, company)} shartnoma raqami: <b>{value}</b>",
-        reply_markup=get_admin_menu(),
+        f"✅ {COMPANIES.get(company, company)} shartnoma raqami: <b>{prefix}</b>",
+        reply_markup=get_company_settings_menu(company, prefix, spek_number, date_mode),
     )
 
 
@@ -992,8 +1012,17 @@ async def settings_date_auto(call: CallbackQuery, state: FSMContext):
         return
     async with async_session() as session:
         await set_contract_date_mode(session, company, "auto")
-    await call.answer("✅ Avto o‘rnatildi", show_alert=False)
-    await admin_settings(call, state)
+        prefix = await get_contract_prefix(session, company)
+        spek_number = await get_spek_counter(session, company)
+        date_mode = await get_contract_date_mode(session, company)
+    try:
+        await call.message.edit_text(
+            f"⚙️ <b>{COMPANIES[company]} sozlamalari</b>",
+            reply_markup=get_company_settings_menu(company, prefix, spek_number, date_mode),
+        )
+    except Exception:
+        pass
+    await call.answer("✅ Avto o‘rnatildi")
 
 
 @router.callback_query(F.data.startswith("admin:date:manual:"))
@@ -1012,13 +1041,13 @@ async def settings_date_manual(call: CallbackQuery, state: FSMContext):
         await call.message.edit_text(
             f"✏️ <b>{COMPANIES[company]} — yangi sana</b>\n\n"
             f"Sanani kiriting (masalan: 24.09.2026):",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_settings_cancel_keyboard(company),
         )
     except Exception:
         await call.message.answer(
             f"✏️ <b>{COMPANIES[company]} — yangi sana</b>\n\n"
             f"Sanani kiriting (masalan: 24.09.2026):",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_settings_cancel_keyboard(company),
         )
     await call.answer()
 
@@ -1040,18 +1069,20 @@ async def _save_date(m: Message, state: FSMContext):
     if not DATE_RE.match(value):
         await m.answer(
             "❌ Sana noto‘g‘ri formatda.\n"
-            "To‘g‘ri format: DD.MM.YYYY (masalan: 24.09.2026)",
-            reply_markup=get_cancel_keyboard(),
+            "To‘g‘ri format: DD.MM.YYYY (masalan: 24.09.2026)"
         )
         return
     data = await state.get_data()
     company = data.get("company", "")
     async with async_session() as session:
         await set_contract_date_mode(session, company, value)
+        prefix = await get_contract_prefix(session, company)
+        spek_number = await get_spek_counter(session, company)
+        date_mode = await get_contract_date_mode(session, company)
     await state.clear()
     await m.answer(
         f"✅ {COMPANIES.get(company, company)} shartnoma sanasi: <b>{value}</b>",
-        reply_markup=get_admin_menu(),
+        reply_markup=get_company_settings_menu(company, prefix, spek_number, date_mode),
     )
 
 
@@ -1071,14 +1102,14 @@ async def settings_spek_start(call: CallbackQuery, state: FSMContext):
             f"📊 <b>{COMPANIES[company]} — spek raqami</b>\n\n"
             f"Oxirgi raqam: <b>{current}</b>\n\n"
             f"Yangi raqamni kiriting (masalan: 50):",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_settings_cancel_keyboard(company),
         )
     except Exception:
         await call.message.answer(
             f"📊 <b>{COMPANIES[company]} — spek raqami</b>\n\n"
             f"Oxirgi raqam: <b>{current}</b>\n\n"
             f"Yangi raqamni kiriting (masalan: 50):",
-            reply_markup=get_cancel_keyboard(),
+            reply_markup=get_settings_cancel_keyboard(company),
         )
     await call.answer()
 
@@ -1092,17 +1123,17 @@ async def settings_spek_save(m: Message, state: FSMContext):
         if value < 0:
             raise ValueError
     except ValueError:
-        await m.answer(
-            "❌ Musbat butun raqam kiriting.",
-            reply_markup=get_cancel_keyboard(),
-        )
+        await m.answer("❌ Musbat butun raqam kiriting.")
         return
     data = await state.get_data()
     company = data.get("company", "")
     async with async_session() as session:
         await set_spek_counter(session, company, value)
+        prefix = await get_contract_prefix(session, company)
+        spek_number = await get_spek_counter(session, company)
+        date_mode = await get_contract_date_mode(session, company)
     await state.clear()
     await m.answer(
         f"✅ {COMPANIES.get(company, company)} spek raqami: <b>{value}</b>",
-        reply_markup=get_admin_menu(),
+        reply_markup=get_company_settings_menu(company, prefix, spek_number, date_mode),
     )
