@@ -2,7 +2,6 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class AdminDrugForm(StatesGroup):
-    select_company = State()
     add_name = State()
     add_unit = State()
     add_price = State()
@@ -17,10 +16,6 @@ class AdminContractForm(StatesGroup):
 
 class AdminSettingsForm(StatesGroup):
     edit_contract_vivora = State()
-    edit_contract_almas = State()
     edit_spek_vivora = State()
-    edit_spek_almas = State()
-
-
-class AdminUserForm(StatesGroup):
-    edit_company = State()
+    edit_date_vivora = State()
+    edit_date_almas = State()
