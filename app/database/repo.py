@@ -280,6 +280,16 @@ async def next_contract_number(session: AsyncSession, company: str) -> str:
     return new_value
 
 
+async def get_contract_date_mode(session: AsyncSession, company: str) -> str:
+    return await get_setting(session, f"contract_date_{company}", "auto")
+
+
+async def set_contract_date_mode(
+    session: AsyncSession, company: str, value: str
+) -> None:
+    await set_setting(session, f"contract_date_{company}", value)
+
+
 async def save_contract(
     session: AsyncSession,
     company: str,
