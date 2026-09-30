@@ -154,37 +154,43 @@ def get_contract_view_keyboard(contract_id: int) -> InlineKeyboardMarkup:
 
 # ========== SETTINGS ==========
 
-def get_settings_menu(prefixes: dict, speks: dict, dates: dict) -> InlineKeyboardMarkup:
+def get_settings_company_keyboard() -> InlineKeyboardMarkup:
+    """Sozlamalar — kompaniya tanlash."""
     buttons = []
     for key, name in COMPANIES.items():
-        date_val = dates.get(key, "auto")
-        date_label = "Avto" if date_val == "auto" else date_val
         buttons.append([
             InlineKeyboardButton(
                 text=f"🏢 {name}",
-                callback_data=f"admin:set:noop:{key}",
-            )
-        ])
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"🔢 Shartnoma raqami: {prefixes.get(key, '—')}",
-                callback_data=f"admin:set:contract:{key}",
-            )
-        ])
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"📅 Shartnoma sanasi: {date_label}",
-                callback_data=f"admin:set:date:{key}",
-            )
-        ])
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"📊 Spek raqami: {speks.get(key, 0)}",
-                callback_data=f"admin:set:spek:{key}",
+                callback_data=f"admin:settings:co:{key}",
             )
         ])
     buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_company_settings_menu(
+    company: str, prefix: str, spek_number: int, date_mode: str
+) -> InlineKeyboardMarkup:
+    """Bitta kompaniya sozlamalari."""
+    date_label = "Avto (bugungi)" if date_mode == "auto" else date_mode
+    name = COMPANIES.get(company, company)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"🔢 Shartnoma raqami: {prefix}",
+                callback_data=f"admin:set:contract:{company}",
+            )],
+            [InlineKeyboardButton(
+                text=f"📅 Shartnoma sanasi: {date_label}",
+                callback_data=f"admin:set:date:{company}",
+            )],
+            [InlineKeyboardButton(
+                text=f"📊 Spek raqami: {spek_number}",
+                callback_data=f"admin:set:spek:{company}",
+            )],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:settings")],
+        ]
+    )
 
 
 def get_date_mode_keyboard(company: str) -> InlineKeyboardMarkup:
@@ -192,7 +198,7 @@ def get_date_mode_keyboard(company: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📅 Avto (bugungi sana)", callback_data=f"admin:date:auto:{company}")],
             [InlineKeyboardButton(text="✏️ Sanani kiritish", callback_data=f"admin:date:manual:{company}")],
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin:settings")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"admin:settings:co:{company}")],
         ]
     )
 
@@ -203,5 +209,13 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin:back")],
+        ]
+    )
+
+
+def get_settings_cancel_keyboard(company: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"admin:settings:co:{company}")],
         ]
     )
